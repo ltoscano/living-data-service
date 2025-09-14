@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, FileText, Download, Settings, BarChart3, Link, Copy, Search, X, AlertCircle, CheckCircle, Info, Users, Key, Trash2, Edit3, Plus, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Upload, FileText, Download, Settings, BarChart3, Link, Copy, Search, X, AlertCircle, CheckCircle, Info, Users, Key, Trash2, Edit3, Plus, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Clock } from 'lucide-react';
 
-const LivingPDFService = () => {
+const LivingDataService = () => {
   const [activeTab, setActiveTab] = useState('upload');
   const [manageSubTab, setManageSubTab] = useState('documents');
   const [documents, setDocuments] = useState([]);
@@ -147,6 +147,7 @@ const LivingPDFService = () => {
       setRetentionDays(30);
     }
   };
+
 
   // Filter and sort documents
   const filteredAndSortedDocuments = documents
@@ -557,7 +558,13 @@ const LivingPDFService = () => {
 
   const TabButton = ({ id, label, icon: Icon }) => (
     <button
-      onClick={() => setActiveTab(id)}
+      onClick={() => {
+        setActiveTab(id);
+        // When clicking Manage tab, automatically select Data subtab
+        if (id === 'manage') {
+          setManageSubTab('documents');
+        }
+      }}
       className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
         activeTab === id 
           ? 'bg-blue-600 text-white' 
@@ -636,7 +643,8 @@ const LivingPDFService = () => {
               
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-sm text-blue-800">
-                  💡 <strong>Tip:</strong> This link will always serve the latest version of your document. Share it with anyone!
+                  <Info size={16} className="inline mr-1" />
+                  <strong>Tip:</strong> This link will always serve the latest version of your document. Share it with anyone!
                 </p>
               </div>
               
@@ -739,11 +747,14 @@ const LivingPDFService = () => {
               </button>
             </form>
             
+            {/* Demo credentials - uncomment to show */}
+            {/*
             <div className="mt-6 p-4 bg-blue-50 rounded-lg">
               <p className="text-sm text-blue-800 font-medium">Demo credentials:</p>
               <p className="text-sm text-blue-700">Username: admin</p>
               <p className="text-sm text-blue-700">Password: admin123</p>
             </div>
+            */}
           </div>
         </div>
       </div>
@@ -763,7 +774,10 @@ const LivingPDFService = () => {
             {user && (
               <div className="flex items-center gap-3">
                 <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full">
-                  <span className="text-sm font-medium">👤 {user.username}</span>
+                  <span className="text-sm font-medium flex items-center gap-1">
+                    <Users size={14} />
+                    {user.username}
+                  </span>
                 </div>
                 <button
                   onClick={handleLogout}
@@ -775,8 +789,9 @@ const LivingPDFService = () => {
             )}
             {retentionDays && (
               <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full">
-                <span className="text-sm font-medium">
-                  📅 Retention: {retentionDays} days
+                <span className="text-sm font-medium flex items-center gap-1">
+                  <Clock size={14} />
+                  Retention: {retentionDays} days
                 </span>
               </div>
             )}
@@ -840,9 +855,10 @@ const LivingPDFService = () => {
                 <button
                   onClick={createLivingPDF}
                   disabled={!uploadFile || !documentName}
-                  className="w-full bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors font-medium"
+                  className="w-full bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors font-medium flex items-center justify-center gap-2"
                 >
-                  Upload Document
+                  <Upload size={20} />
+                  Upload
                 </button>
               </div>
 
@@ -946,7 +962,7 @@ const LivingPDFService = () => {
                   }`}
                   title={`Sort by creation date ${sortBy === 'created' ? (sortOrder === 'asc' ? '(oldest first)' : '(newest first)') : ''}`}
                 >
-                  <span className="text-sm">📅</span>
+                  <Clock size={16} />
                   Date Created
                   {getSortIcon('created')}
                 </button>
@@ -1063,7 +1079,8 @@ const LivingPDFService = () => {
                           ))}
                         </div>
                         <p className="text-xs text-gray-500 mt-2">
-                          💡 The version with ✓ is the one distributed via the public link
+                          <Info size={14} className="inline mr-1" />
+                          The version with ✓ is the one distributed via the public link
                         </p>
                       </div>
                     )}
@@ -1262,7 +1279,9 @@ const LivingPDFService = () => {
                 </>
               ) : (
                 <div className="text-center py-8">
-                  <p className="text-gray-600">Loading analytics...</p>
+                  <BarChart3 size={48} className="mx-auto text-gray-400 mb-4" />
+                  <p className="text-gray-600">No analytics available yet</p>
+                  <p className="text-sm text-gray-500 mt-2">Upload some documents to see analytics data</p>
                 </div>
               )}
             </div>
@@ -1540,4 +1559,4 @@ const LivingPDFService = () => {
   );
 };
 
-export default LivingPDFService;
+export default LivingDataService;

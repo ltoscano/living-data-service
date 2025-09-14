@@ -1,12 +1,16 @@
-FROM node:18-alpine
+FROM node:20-alpine
 
-# Install dependencies for pdf processing
+# Install dependencies for pdf processing, health checks, and native module compilation
 RUN apk add --no-cache \
     cairo \
     pango \
     giflib \
     jpeg \
-    librsvg
+    librsvg \
+    curl \
+    python3 \
+    make \
+    g++
 
 # Create app directory
 WORKDIR /app
@@ -14,14 +18,23 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install ALL dependencies (including dev dependencies for building frontend)
+RUN npm ci
 
 # Copy application code
 COPY . .
 
+# Build frontend
+RUN npm run build:frontend
+
+# Remove dev dependencies to keep image small
+RUN npm prune --omit=dev
+
+# Rebuild native modules for the container architecture
+RUN npm rebuild better-sqlite3
+
 # Create required directories
-RUN mkdir -p /app/data /app/uploads /app/living-pdfs /app/public
+RUN mkdir -p /app/data /app/uploads /app/living-pdfs
 
 # Set permissions
 RUN chown -R node:node /app

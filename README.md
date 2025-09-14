@@ -1,183 +1,189 @@
-# 🔄 Living Data Service
+# 🚀 Living Data Service
 
-Document management service with user authentication, version control, and secure access management.
+**Modern document management made simple.** Deploy in seconds with Docker, upload any file type, and share with secure public links. Features intelligent version control, real-time analytics, and enterprise-grade security.
 
-## ✨ Features
+Perfect for teams, developers, and organizations who need professional document management without the complexity.
 
-- **User Authentication**: Secure login system with bcrypt password hashing
-- **User Management**: Admin interface for creating, editing, and deleting users
-- **Role-Based Access**: Admin-only features with user isolation
-- **Password Management**: All users can change their passwords; admins can reset user passwords
-- **User Isolation**: Each user sees only their own documents and data
-- **Universal File Support**: Upload and manage any file type (PDF, images, documents, etc.)
-- **Document Deletion**: Delete documents with confirmation dialog and complete file cleanup
-- **Version Management**: Upload new versions and control which version is distributed
-- **Public Links**: Permanent URLs that always serve the current selected version (no auth required)
-- **Availability Control**: Toggle document availability without changing links
-- **Session Management**: Secure session-based authentication with configurable timeouts
-- **Modal Dialogs**: Elegant UI feedback replacing JavaScript alerts
-- **SQLite Database**: Lightweight data persistence with automatic cleanup
-- **Analytics**: User-specific analytics and download tracking
-- **RESTful API**: Complete programmatic interface with authentication
+## ⚡ Quick Start with Docker
 
-## 🚀 Quick Start
-
+### 1. Clone and Start
 ```bash
-# Install dependencies
+git clone <your-repo-url>
+cd living-data-service
+docker-compose up --build -d
+```
+
+**Note**: The `--build` flag ensures the frontend is built automatically during container creation.
+
+### 2. Access the Service
+- **Web Interface**: http://localhost:3000
+- **Default Login**: `admin` / `admin123`
+
+### 3. Start Using
+1. Login with admin credentials
+2. Click **"Add Data"** to upload your first file
+3. Share the generated public link with anyone
+4. Manage versions, users, and availability from the **"Manage"** section
+
+## 🎯 What You Get
+
+- ✅ **Universal File Support**: PDFs, images, documents, any file type
+- ✅ **Version Management**: Upload new versions, control which one is distributed
+- ✅ **Public Sharing**: Permanent links that always serve the current version
+- ✅ **User Management**: Multi-user support with admin controls
+- ✅ **Secure Access**: Login required for management, public links for sharing
+- ✅ **Modern UI**: Clean, responsive interface with elegant modals
+
+## 🔧 Configuration
+
+### Environment Variables
+Create a `.env` file or set environment variables in `docker-compose.yml`:
+
+#### Core Settings
+```bash
+PORT=3000                                    # Server port (default: 3000)
+NODE_ENV=development                         # Environment (development/production)
+DB_PATH=./data/documents.db                  # Database file path
+BASE_URL=http://localhost:3000               # Base URL for the service
+```
+
+#### Data Management
+```bash
+RETENTION_DAYS=30                            # Days to keep old file versions
+CLEANUP_INTERVAL_MINUTES=5                   # Cleanup frequency in minutes
+MAX_FILE_SIZE=50MB                           # Maximum upload file size
+MAX_FILES_PER_USER=100                       # Maximum files per user
+```
+
+#### Security
+```bash
+JWT_SECRET=your-secret-key                   # Secret for session encryption
+SUPERUSER_NAME=admin                         # Default admin username
+SUPERUSER_PASSWD=admin123                    # Default admin password
+SECURE_COOKIES=false                         # Use HTTPS-only cookies (true for production with SSL)
+ALLOWED_ORIGINS=http://localhost:3000        # CORS allowed origins (optional)
+```
+
+#### Optional Features
+```bash
+DEMO_MODE=false                              # Enable demo mode (optional)
+ENABLE_REGISTRATION=false                    # Allow user self-registration (optional)
+```
+
+### Docker Configuration
+Edit `docker-compose.yml` environment section to customize:
+```yaml
+environment:
+  - NODE_ENV=production
+  - PORT=3000
+  - SECURE_COOKIES=false    # Set to 'true' for HTTPS deployments
+  - SUPERUSER_PASSWD=your-secure-password
+```
+
+### Production Setup
+For production deployments with HTTPS:
+1. Set `SECURE_COOKIES=true` for enhanced security
+2. Use a strong `JWT_SECRET` (generate with: `openssl rand -hex 32`)
+3. Change default admin credentials
+4. Configure proper `ALLOWED_ORIGINS` for CORS
+
+## 📊 How It Works
+
+1. **Upload**: Any file type through the web interface
+2. **Generate**: Automatic public link creation
+3. **Share**: Give the link to anyone - no login required
+4. **Update**: Upload new versions anytime
+5. **Control**: Toggle availability, manage users, view analytics
+
+## 🔄 Version Management
+
+- Upload new versions of your documents
+- Choose which version to distribute publicly
+- Public links always serve the currently selected version
+- Full version history with individual download options
+
+## 👥 User Management (Admin Only)
+
+- Create, edit, delete users
+- Password management for all users
+- Each user sees only their own documents
+- Role-based access control
+
+## 🛠️ Development Setup
+
+### Without Docker
+```bash
 npm install
-
-# Run database migration (if upgrading from older version)
-npm run migrate
-
-# Start the server
-npm start
-
-# Or in development mode
-npm run dev
+npm run migrate  # Set up database
+npm start        # Start server on port 3000
 ```
 
-Then open http://localhost:3000 for the web interface.
-
-**Default login credentials:**
-- Username: `admin`
-- Password: `admin123`
-
-## 📡 API Endpoints
-
-### Authentication
-- `POST /api/login` - User login
-- `POST /api/logout` - User logout
-- `POST /api/register` - User registration
-- `GET /api/auth/status` - Check authentication status
-
-### Documents (require authentication)
-- `POST /api/create-living-pdf` - Create new document (any file type)
-- `GET /api/download/:id` - Download document (latest version)
-- `POST /api/update-document/:id` - Upload new version (any file type)
-- `POST /api/set-current-version/:id` - Set distributed version
-- `POST /api/toggle-availability/:id` - Toggle document availability
-- `DELETE /api/documents/:id` - Delete document and all versions
-- `GET /api/documents` - List user's documents
-- `GET /api/analytics` - User analytics
-- `GET /api/config` - Server configuration
-
-### User Management (admin only)
-- `GET /api/users` - List all users
-- `POST /api/users` - Create new user
-- `PUT /api/users/:id` - Update user
-- `DELETE /api/users/:id` - Delete user
-- `POST /api/change-password` - Change password (any user)
-
-### Public Access (no authentication)
-- `GET /api/public/:token` - Public download link (always current version)
-
-## 🔧 How It Works
-
-1. **Authentication**: Users log in with username/password
-2. **Upload**: Authenticated users upload any type of file
-3. **Processing**: Server stores file and creates unique access token (special PDF tracking for PDFs)
-4. **User Isolation**: Each user sees only their own documents
-5. **Public Link**: Permanent URL generated for public distribution (no auth required)
-6. **Version Management**: New versions can be uploaded and selected for distribution
-7. **Availability Control**: Documents can be temporarily disabled without changing links
-8. **Document Management**: Full CRUD operations with confirmation dialogs
-
-## 📱 Compatibility
-
-**✅ Supports all file types:**
-- PDF documents (with enhanced tracking features)
-- Images (JPG, PNG, GIF, etc.)
-- Microsoft Office documents (DOC, DOCX, XLS, XLSX, PPT, PPTX)
-- Text files and source code
-- Archives and any binary files
-
-**🔗 Universal Distribution:**
-- Automatic content-type detection for proper browser handling
-- Compatible with all devices and viewers
-- Reliable public link distribution
-- Secure file serving with proper headers
-
-## 🗄️ Database
-
-The service uses SQLite to store:
-- Document metadata
-- Version history  
-- Download analytics
-- Access tracking
-
-## 📊 Analytics
-
-For each document, tracks:
-- Total downloads
-- Version distribution
-- Access patterns
-- Monthly statistics
-
-## 🔒 Security
-
-- **User Authentication**: Secure bcrypt password hashing
-- **Session Management**: HTTP-only cookies with configurable timeouts
-- **User Isolation**: Database-level user separation
-- **File Upload Validation**: Strict PDF validation
-- **Input Sanitization**: SQL injection protection
-- **Rate Limiting**: Configurable request limits
-- **Automatic Cleanup**: Old version removal with retention policies
-
-## 🚀 Deploy
-
-### Heroku
+### Building Frontend
 ```bash
-git init
-heroku create your-app-name
-git add .
-git commit -m "Initial commit"
-git push heroku main
+npm run build:frontend  # Build React app
 ```
 
-### Railway
+## 📡 API Access
+
+The service provides a full REST API:
+- `POST /api/create-living-pdf` - Upload document
+- `GET /api/documents` - List user documents  
+- `GET /api/public/:token` - Public document access
+- `DELETE /api/documents/:id` - Delete document
+- Full user management endpoints for admin users
+
+## 🔒 Security Features
+
+- Session-based authentication with secure cookies
+- Password hashing with bcrypt
+- User isolation (each user sees only their documents)
+- CSRF protection and input validation
+- Configurable retention policies for automatic cleanup
+
+## 📁 File Structure
+
+```
+living-data-service/
+├── src/
+│   ├── server.js           # Express server
+│   ├── LivingPDFService.jsx # React frontend
+│   └── ...
+├── docker-compose.yml      # Easy Docker setup
+├── Dockerfile             # Container definition
+└── migrate-db.js          # Database setup
+```
+
+## 🚀 Production Deployment
+
+### Docker (Recommended)
 ```bash
-npm install -g @railway/cli
-railway login
-railway init
-railway up
+docker-compose up -d
 ```
 
-### Docker
-```bash
-npm run docker:build
-npm run docker:run
-```
+### Manual Deployment
+1. Set production environment variables
+2. Build frontend: `npm run build:frontend`
+3. Start server: `npm start`
+4. Setup reverse proxy (nginx/apache)
+5. Configure SSL certificate
 
-## ⚙️ Configuration
+## 💡 Tips
 
-Environment variables (see `.env.example`):
-- `PORT` - Server port (default: 3000)
-- `DB_PATH` - SQLite database path
-- `RETENTION_DAYS` - Days to keep old versions (default: 30)
-- `CLEANUP_INTERVAL_MINUTES` - Cleanup frequency (default: 5)
-- `JWT_SECRET` - Secret key for session signing
-- `SUPERUSER_NAME` - Admin username (default: admin)
-- `SUPERUSER_PASSWD` - Admin password (default: admin123)
+- **First Time**: Run the migration script if upgrading: `npm run migrate`
+- **Backup**: The `data/` folder contains your database and uploaded files
+- **Performance**: Use a reverse proxy for production deployments
+- **Security**: Change default admin password after first login
 
-## 📝 TODO
+## 🤝 Professional Support
 
-- [x] User authentication system
-- [x] User isolation and data separation
-- [x] User management interface (admin)
-- [x] Password management for all users
-- [x] Role-based permissions (admin/user)
-- [x] Modal dialogs instead of JavaScript alerts
-- [ ] User registration with email verification
-- [ ] Password reset functionality via email
-- [ ] Rate limiting implementation
-- [ ] Email notifications for updates
-- [ ] Advanced analytics dashboard
-- [ ] Multi-level user roles (admin/manager/user)
-- [ ] API webhooks
-- [ ] Cloud storage integration
-- [ ] Bulk operations
-- [ ] User activity logs
+Need custom integrations or enterprise features? 
 
-## 📄 License
+**Contact [@bematic](https://twitter.com/bematic)** for:
+- Keycloak integration
+- Custom authentication systems  
+- Enterprise configurations
+- Professional deployment assistance
 
-MIT License - see LICENSE file for details.
+---
+
+**Made with ❤️ for simple, effective document management.**

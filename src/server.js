@@ -180,7 +180,7 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: { 
-    secure: process.env.NODE_ENV === 'production', 
+    secure: process.env.SECURE_COOKIES === 'true', // Use HTTPS only if explicitly enabled
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
@@ -253,6 +253,7 @@ app.get('/api/auth/status', (req, res) => {
   }
 });
 
+
 // ENDPOINT: Register (solo per demo, in produzione dovrebbe essere protetto)
 app.post('/api/register', async (req, res) => {
   try {
@@ -290,6 +291,15 @@ app.post('/api/register', async (req, res) => {
 });
 
 app.use(express.static('public'));
+
+// ENDPOINT: Health check for Docker
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    service: 'Living Data Service'
+  });
+});
 
 // ENDPOINT: Crea Living Document  
 app.post('/api/create-living-pdf', requireAuth, upload.single('pdf'), async (req, res) => {

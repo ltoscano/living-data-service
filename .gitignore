@@ -5,10 +5,14 @@ node_modules/
 *.db
 *.sqlite
 *.sqlite3
+data/
 
 # Uploads e file generati
 uploads/
 living-pdfs/
+
+# Documentation
+docs/
 
 # Environment
 .env

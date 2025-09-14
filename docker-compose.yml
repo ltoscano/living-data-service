@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  living-pdf:
+  living-data-service:
     build: .
     ports:
       - "3000:3000"
@@ -10,7 +10,11 @@ services:
       - ./uploads:/app/uploads
       - ./living-pdfs:/app/living-pdfs
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=production
       - PORT=3000
-      - DB_PATH=/app/data/living-pdf.db
+      - DB_PATH=/app/data/documents.db
+      - SUPERUSER_NAME=admin
+      - SUPERUSER_PASSWD=admin123
+      - JWT_SECRET=change-this-in-production
+      - SECURE_COOKIES=false
     restart: unless-stopped

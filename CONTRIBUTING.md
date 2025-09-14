@@ -1,7 +1,7 @@
 # CONTRIBUTING.md
-# Contributing to Living PDF Service
+# Contributing to Living Data Service
 
-Thank you for considering contributing to Living PDF Service! We welcome contributions from the community.
+Thank you for considering contributing to Living Data Service! We welcome contributions from the community.
 
 ## 🤝 How to Contribute
 
@@ -32,8 +32,8 @@ Thank you for considering contributing to Living PDF Service! We welcome contrib
 
 ```bash
 # Clone your fork
-git clone https://github.com/yourusername/living-pdf-service.git
-cd living-pdf-service
+git clone https://github.com/yourusername/living-data-service.git
+cd living-data-service
 
 # Install dependencies
 npm install
@@ -75,15 +75,18 @@ Examples:
 ## 🔧 Project Structure
 
 ```
-living-pdf-service/
-├── server.js              # Main application file
+living-data-service/
+├── src/
+│   ├── server.js          # Main application file
+│   ├── LivingDataService.jsx  # React frontend component
+│   └── main.jsx           # Frontend entry point
 ├── package.json           # Dependencies and scripts  
-├── setup.js              # Project initialization
-├── living-pdfs/          # Generated PDF storage
-├── uploads/              # Temporary upload storage
-├── public/               # Static web files
-├── docs/                 # Documentation
-├── tests/                # Test files
+├── docker-compose.yml     # Docker configuration
+├── Dockerfile             # Container definition
+├── data/                  # Database and persistent storage
+├── uploads/               # Temporary upload storage
+├── living-pdfs/          # Generated document storage
+├── public/               # Built frontend files
 └── .github/              # GitHub templates and workflows
 ```
 
@@ -132,12 +135,13 @@ describe('POST /api/create-living-pdf', () => {
 
 ## 📄 License
 
-By contributing, you agree that your contributions will be licensed under the same dual-license terms as the project.
+By contributing, you agree that your contributions will be licensed under the MIT License.
 
 ## 💬 Getting Help
 
 - **Documentation**: Check the [docs/](docs/) folder
-- **Discussions**: Use [GitHub Discussions](https://github.com/yourusername/living-pdf-service/discussions)
+- **Discussions**: Use [GitHub Discussions](https://github.com/yourusername/living-data-service/discussions)
+- **Professional Support**: Contact [@bematic](https://twitter.com/bematic) for enterprise integrations
 - **Issues**: Search existing issues before creating new ones
 - **Email**: For sensitive issues, contact maintainers directly
 
