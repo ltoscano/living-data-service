@@ -1,86 +1,367 @@
 // server.js - Express + PDF-lib per generare Living PDF
+require('dotenv').config();
 const express = require('express');
+const session = require('express-session');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const fs = require('fs').promises;
 const crypto = require('crypto');
 const path = require('path');
+const Database = require('better-sqlite3');
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
 
-// Database semplice (in produzione usare PostgreSQL/MongoDB)
-const documents = new Map();
-const versions = new Map();
+// Configurazione da environment variables
+const DB_PATH = process.env.DB_PATH || './data/documents.db';
+const RETENTION_DAYS = parseInt(process.env.RETENTION_DAYS) || 30;
+const CLEANUP_INTERVAL = parseInt(process.env.CLEANUP_INTERVAL_MINUTES) || 5;
 
-app.use(express.json());
-app.use(express.static('public'));
-
-// ENDPOINT: Crea Living PDF
-app.post('/api/create-living-pdf', upload.single('pdf'), async (req, res) => {
-  try {
-    const { documentName, updateFrequency = 'manual' } = req.body;
-    const originalPDF = req.file;
+// Setup database SQLite
+let db;
+async function initDatabase() {
+  // Crea cartella data se non esiste
+  await fs.mkdir(path.dirname(DB_PATH), { recursive: true }).catch(() => {});
+  
+  db = new Database(DB_PATH);
+  db.pragma('journal_mode = WAL');
+  
+  // Crea tabelle
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL,
+      email TEXT,
+      created DATETIME DEFAULT CURRENT_TIMESTAMP,
+      lastLogin DATETIME,
+      isActive BOOLEAN DEFAULT TRUE
+    );
     
-    if (!originalPDF) {
-      return res.status(400).json({ error: 'PDF file required' });
+    CREATE TABLE IF NOT EXISTS documents (
+      id TEXT PRIMARY KEY,
+      userId INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      accessToken TEXT UNIQUE NOT NULL,
+      currentVersion TEXT NOT NULL,
+      created DATETIME DEFAULT CURRENT_TIMESTAMP,
+      lastUpdate DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updateFrequency TEXT DEFAULT 'manual',
+      downloads INTEGER DEFAULT 0,
+      activeViewers INTEGER DEFAULT 0,
+      filePath TEXT NOT NULL,
+      available BOOLEAN DEFAULT TRUE,
+      FOREIGN KEY (userId) REFERENCES users (id) ON DELETE CASCADE
+    );
+    
+    CREATE TABLE IF NOT EXISTS versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      documentId TEXT NOT NULL,
+      version TEXT NOT NULL,
+      filePath TEXT NOT NULL,
+      created DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (documentId) REFERENCES documents (id) ON DELETE CASCADE,
+      UNIQUE(documentId, version)
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+    CREATE INDEX IF NOT EXISTS idx_documents_user ON documents(userId);
+    CREATE INDEX IF NOT EXISTS idx_documents_token ON documents(accessToken);
+    CREATE INDEX IF NOT EXISTS idx_versions_doc ON versions(documentId);
+    CREATE INDEX IF NOT EXISTS idx_versions_created ON versions(created);
+  `);
+  
+  console.log('📊 Database SQLite inizializzato:', DB_PATH);
+  
+  // Crea superuser se non esiste
+  await createSuperUserIfNotExists();
+}
+
+// Crea superuser se non esiste
+async function createSuperUserIfNotExists() {
+  try {
+    const superUserName = process.env.SUPERUSER_NAME || 'admin';
+    const superUserPass = process.env.SUPERUSER_PASSWD || 'admin123';
+    
+    const existingUser = db.prepare('SELECT * FROM users WHERE username = ?').get(superUserName);
+    
+    if (!existingUser) {
+      const hashedPassword = await bcrypt.hash(superUserPass, 10);
+      
+      db.prepare(`
+        INSERT INTO users (username, password, email, created)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+      `).run(superUserName, hashedPassword, 'admin@livingdata.local');
+      
+      console.log(`👤 Superuser '${superUserName}' creato con successo`);
+    } else {
+      console.log(`👤 Superuser '${superUserName}' già esistente`);
+    }
+  } catch (error) {
+    console.error('Errore creazione superuser:', error);
+  }
+}
+
+// Middleware di autenticazione
+function requireAuth(req, res, next) {
+  if (!req.session || !req.session.userId) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  next();
+}
+
+// Middleware per ottenere l'utente corrente
+function getCurrentUser(req, res, next) {
+  if (req.session && req.session.userId) {
+    const user = db.prepare('SELECT id, username, email FROM users WHERE id = ?').get(req.session.userId);
+    req.user = user;
+  }
+  next();
+}
+
+// Sistema di pulizia automatica
+async function cleanupOldVersions() {
+  try {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - RETENTION_DAYS);
+    
+    // Trova versioni vecchie da eliminare
+    const oldVersions = db.prepare(`
+      SELECT v.*, d.name as documentName 
+      FROM versions v 
+      JOIN documents d ON v.documentId = d.id 
+      WHERE v.created < ? AND v.version != d.currentVersion
+      ORDER BY v.created ASC
+    `).all(cutoffDate.toISOString());
+    
+    let deletedCount = 0;
+    
+    for (const version of oldVersions) {
+      try {
+        // Elimina file fisico
+        await fs.unlink(version.filePath).catch(() => {});
+        
+        // Elimina record dal database
+        db.prepare('DELETE FROM versions WHERE id = ?').run(version.id);
+        
+        deletedCount++;
+        console.log(`🗑️ Eliminata versione ${version.version} di "${version.documentName}" (${version.created})`);
+      } catch (error) {
+        console.error(`Errore eliminazione versione ${version.id}:`, error.message);
+      }
     }
     
-    // Genera ID univoco per il documento
+    if (deletedCount > 0) {
+      console.log(`🧹 Cleanup completato: ${deletedCount} versioni eliminate (retention: ${RETENTION_DAYS} giorni)`);
+    }
+  } catch (error) {
+    console.error('Errore durante cleanup:', error.message);
+  }
+}
+
+// Avvia cleanup schedulato
+function startCleanupScheduler() {
+  const intervalMs = CLEANUP_INTERVAL * 60 * 1000; // Converti minuti in millisecondi
+  
+  console.log(`⏰ Cleanup scheduler avviato: ogni ${CLEANUP_INTERVAL} minuti (retention: ${RETENTION_DAYS} giorni)`);
+  
+  // Esegui subito il primo cleanup
+  setTimeout(cleanupOldVersions, 10000); // Aspetta 10 secondi dopo l'avvio
+  
+  // Poi esegui ogni CLEANUP_INTERVAL minuti
+  setInterval(cleanupOldVersions, intervalMs);
+}
+
+// Session configuration
+app.use(session({
+  secret: process.env.JWT_SECRET || 'default-secret-key',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { 
+    secure: process.env.NODE_ENV === 'production', 
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+}));
+
+app.use(express.json());
+app.use(getCurrentUser);
+
+// ENDPOINT: Login
+app.post('/api/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+    
+    // Trova utente
+    const user = db.prepare('SELECT * FROM users WHERE username = ? AND isActive = 1').get(username);
+    
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    // Verifica password
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    // Aggiorna ultimo login
+    db.prepare('UPDATE users SET lastLogin = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
+    
+    // Crea sessione
+    req.session.userId = user.id;
+    req.session.username = user.username;
+    
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email
+      }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ENDPOINT: Logout
+app.post('/api/logout', (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      return res.status(500).json({ error: 'Could not log out' });
+    }
+    res.json({ success: true, message: 'Logged out successfully' });
+  });
+});
+
+// ENDPOINT: Check auth status
+app.get('/api/auth/status', (req, res) => {
+  if (req.session && req.session.userId) {
+    const user = db.prepare('SELECT id, username, email FROM users WHERE id = ?').get(req.session.userId);
+    res.json({ authenticated: true, user });
+  } else {
+    res.json({ authenticated: false });
+  }
+});
+
+// ENDPOINT: Register (solo per demo, in produzione dovrebbe essere protetto)
+app.post('/api/register', async (req, res) => {
+  try {
+    const { username, password, email } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+    
+    // Verifica se utente esiste
+    const existingUser = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+    
+    if (existingUser) {
+      return res.status(409).json({ error: 'Username already exists' });
+    }
+    
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    // Crea utente
+    const result = db.prepare(`
+      INSERT INTO users (username, password, email, created)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(username, hashedPassword, email || null);
+    
+    res.json({
+      success: true,
+      message: 'User created successfully',
+      userId: result.lastInsertRowid
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.use(express.static('public'));
+
+// ENDPOINT: Crea Living Document  
+app.post('/api/create-living-pdf', requireAuth, upload.single('pdf'), async (req, res) => {
+  try {
+    const { documentName, updateFrequency = 'manual' } = req.body;
+    const originalFile = req.file;
+    
+    if (!originalFile) {
+      return res.status(400).json({ error: 'File required' });
+    }
+    
+    // Genera ID univoco per il documento e token per accesso pubblico
     const documentId = crypto.randomBytes(16).toString('hex');
+    const accessToken = crypto.randomBytes(24).toString('hex'); // Token per link pubblico
     const currentVersion = '1.0';
     
-    // Legge il PDF originale
-    const pdfBytes = await fs.readFile(originalPDF.path);
-    const pdfDoc = await PDFDocument.load(pdfBytes);
+    // Ottieni l'estensione del file originale
+    const fileExtension = path.extname(originalFile.originalname) || '';
+    const outputPath = `living-pdfs/${documentId}-v${currentVersion}${fileExtension}`;
     
-    // Aggiunge il JavaScript di auto-aggiornamento
-    const jsCode = generateUpdateScript(documentId, currentVersion);
-    pdfDoc.addJavaScript('autoUpdate', jsCode);
+    // Per i file PDF, applica le modifiche di tracking
+    if (originalFile.mimetype === 'application/pdf') {
+      try {
+        // Legge il PDF originale
+        const pdfBytes = await fs.readFile(originalFile.path);
+        const pdfDoc = await PDFDocument.load(pdfBytes);
+        
+        // Aggiunge campo nascosto per tracking
+        const form = pdfDoc.getForm();
+        const versionField = form.createTextField('__version');
+        versionField.setText(currentVersion);
+        
+        const docIdField = form.createTextField('__docId');
+        docIdField.setText(documentId);
+        
+        // Salva il Living PDF
+        const livingPdfBytes = await pdfDoc.save();
+        await fs.writeFile(outputPath, livingPdfBytes);
+      } catch (error) {
+        // Se il PDF è corrotto o non può essere modificato, copialo semplicemente
+        console.warn('Could not modify PDF, copying original:', error.message);
+        const originalBytes = await fs.readFile(originalFile.path);
+        await fs.writeFile(outputPath, originalBytes);
+      }
+    } else {
+      // Per tutti gli altri tipi di file, copialo semplicemente
+      const originalBytes = await fs.readFile(originalFile.path);
+      await fs.writeFile(outputPath, originalBytes);
+    }
     
-    // Aggiunge campo nascosto per tracking
-    const form = pdfDoc.getForm();
-    const versionField = form.createTextField('__version');
-    versionField.setText(currentVersion);
-    versionField.setFontSize(0); // invisibile
+    // Salva documento nel database
+    db.prepare(`
+      INSERT INTO documents (id, userId, name, accessToken, currentVersion, filePath, updateFrequency, created, lastUpdate)
+      VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).run(documentId, req.user.id, documentName, accessToken, currentVersion, outputPath, updateFrequency);
     
-    const docIdField = form.createTextField('__docId');
-    docIdField.setText(documentId);
-    docIdField.setFontSize(0); // invisibile
-    
-    // Salva il Living PDF
-    const livingPdfBytes = await pdfDoc.save();
-    const outputPath = `living-pdfs/${documentId}-v${currentVersion}.pdf`;
-    await fs.writeFile(outputPath, livingPdfBytes);
-    
-    // Salva metadata nel database
-    documents.set(documentId, {
-      id: documentId,
-      name: documentName,
-      currentVersion: currentVersion,
-      created: new Date(),
-      lastUpdate: new Date(),
-      updateFrequency: updateFrequency,
-      downloads: 0,
-      activeViewers: 0,
-      filePath: outputPath
-    });
-    
-    // Salva versione originale
-    versions.set(`${documentId}-${currentVersion}`, {
-      version: currentVersion,
-      filePath: outputPath,
-      timestamp: new Date()
-    });
+    // Salva versione
+    db.prepare(`
+      INSERT INTO versions (documentId, version, filePath, created)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(documentId, currentVersion, outputPath);
     
     // Cleanup file temporaneo
-    await fs.unlink(originalPDF.path);
+    await fs.unlink(originalFile.path);
     
     res.json({
       success: true,
       documentId: documentId,
       version: currentVersion,
-      downloadUrl: `/api/download/${documentId}`
+      downloadUrl: `/api/download/${documentId}`,
+      publicUrl: `/api/public/${accessToken}`, // Link pubblico sempre aggiornato
+      accessToken: accessToken
     });
     
   } catch (error) {
@@ -126,24 +407,138 @@ app.get('/api/check-update/:documentId', async (req, res) => {
   }
 });
 
-// ENDPOINT: Download PDF (sempre ultima versione)
-app.get('/api/download/:documentId', async (req, res) => {
+// ENDPOINT: Download pubblico tramite token (sempre ultima versione)
+app.get('/api/public/:accessToken', async (req, res) => {
+  try {
+    const { accessToken } = req.params;
+    
+    // Trova documento tramite accessToken
+    const targetDoc = db.prepare('SELECT * FROM documents WHERE accessToken = ?').get(accessToken);
+    
+    if (!targetDoc) {
+      return res.status(404).send(`
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Document Not Found</title>
+          <style>
+            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
+            .container { max-width: 500px; margin: 0 auto; background: white; padding: 40px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            h1 { color: #e74c3c; margin-bottom: 20px; }
+            p { color: #666; line-height: 1.6; }
+            .icon { font-size: 64px; margin-bottom: 20px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="icon">📄❌</div>
+            <h1>Document Not Found</h1>
+            <p>The document you're looking for doesn't exist or the link is invalid.</p>
+            <p>Please contact the person who provided this link for an updated version.</p>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+    
+    // Check if document is available
+    if (!targetDoc.available) {
+      return res.status(410).send(`
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Document Unavailable</title>
+          <style>
+            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
+            .container { max-width: 500px; margin: 0 auto; background: white; padding: 40px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            h1 { color: #f39c12; margin-bottom: 20px; }
+            p { color: #666; line-height: 1.6; }
+            .icon { font-size: 64px; margin-bottom: 20px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="icon">📄⏸️</div>
+            <h1>Document Temporarily Unavailable</h1>
+            <p>This document is currently not available for download.</p>
+            <p>Please contact the person who provided this link for updates or an alternative version.</p>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+    
+    // Incrementa download counter
+    db.prepare('UPDATE documents SET downloads = downloads + 1 WHERE id = ?').run(targetDoc.id);
+    
+    const fileBytes = await fs.readFile(targetDoc.filePath);
+    const fileExtension = path.extname(targetDoc.filePath);
+    
+    // Determina il content type in base all'estensione
+    let contentType = 'application/octet-stream'; // Default
+    if (fileExtension === '.pdf') {
+      contentType = 'application/pdf';
+    } else if (fileExtension === '.jpg' || fileExtension === '.jpeg') {
+      contentType = 'image/jpeg';
+    } else if (fileExtension === '.png') {
+      contentType = 'image/png';
+    } else if (fileExtension === '.txt') {
+      contentType = 'text/plain';
+    } else if (fileExtension === '.doc') {
+      contentType = 'application/msword';
+    } else if (fileExtension === '.docx') {
+      contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
+    
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${targetDoc.name}-v${targetDoc.currentVersion}${fileExtension}"`);
+    res.send(fileBytes);
+    
+  } catch (error) {
+    console.error('Error downloading PDF via public link:', error);
+    res.status(500).json({ error: 'File not found' });
+  }
+});
+
+// ENDPOINT: Download Document (sempre ultima versione)
+app.get('/api/download/:documentId', requireAuth, async (req, res) => {
   try {
     const { documentId } = req.params;
-    const doc = documents.get(documentId);
+    const doc = db.prepare('SELECT * FROM documents WHERE id = ? AND userId = ?').get(documentId, req.user.id);
     
     if (!doc) {
       return res.status(404).json({ error: 'Document not found' });
     }
     
     // Incrementa download counter
-    doc.downloads = (doc.downloads || 0) + 1;
+    db.prepare('UPDATE documents SET downloads = downloads + 1 WHERE id = ?').run(documentId);
     
-    const pdfBytes = await fs.readFile(doc.filePath);
+    const fileBytes = await fs.readFile(doc.filePath);
+    const fileExtension = path.extname(doc.filePath);
     
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${doc.name}-v${doc.currentVersion}.pdf"`);
-    res.send(pdfBytes);
+    // Determina il content type in base all'estensione
+    let contentType = 'application/octet-stream'; // Default
+    if (fileExtension === '.pdf') {
+      contentType = 'application/pdf';
+    } else if (fileExtension === '.jpg' || fileExtension === '.jpeg') {
+      contentType = 'image/jpeg';
+    } else if (fileExtension === '.png') {
+      contentType = 'image/png';
+    } else if (fileExtension === '.txt') {
+      contentType = 'text/plain';
+    } else if (fileExtension === '.doc') {
+      contentType = 'application/msword';
+    } else if (fileExtension === '.docx') {
+      contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
+    
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${doc.name}-v${doc.currentVersion}${fileExtension}"`);
+    res.send(fileBytes);
     
   } catch (error) {
     console.error('Error downloading PDF:', error);
@@ -152,57 +547,71 @@ app.get('/api/download/:documentId', async (req, res) => {
 });
 
 // ENDPOINT: Aggiorna contenuto di un documento
-app.post('/api/update-document/:documentId', upload.single('pdf'), async (req, res) => {
+app.post('/api/update-document/:documentId', requireAuth, upload.single('pdf'), async (req, res) => {
   try {
     const { documentId } = req.params;
-    const newPdfFile = req.file;
+    const newFile = req.file;
     
-    const doc = documents.get(documentId);
+    const doc = db.prepare('SELECT * FROM documents WHERE id = ? AND userId = ?').get(documentId, req.user.id);
     if (!doc) {
       return res.status(404).json({ error: 'Document not found' });
     }
     
-    if (!newPdfFile) {
-      return res.status(400).json({ error: 'New PDF file required' });
+    if (!newFile) {
+      return res.status(400).json({ error: 'New file required' });
     }
     
     // Incrementa versione
     const newVersion = (parseFloat(doc.currentVersion) + 0.1).toFixed(1);
     
-    // Crea nuovo Living PDF con la versione aggiornata
-    const pdfBytes = await fs.readFile(newPdfFile.path);
-    const pdfDoc = await PDFDocument.load(pdfBytes);
+    // Ottieni l'estensione del nuovo file
+    const fileExtension = path.extname(newFile.originalname) || '';
+    const newFilePath = `living-pdfs/${documentId}-v${newVersion}${fileExtension}`;
     
-    const jsCode = generateUpdateScript(documentId, newVersion);
-    pdfDoc.addJavaScript('autoUpdate', jsCode);
+    // Per i file PDF, applica le modifiche di tracking
+    if (newFile.mimetype === 'application/pdf') {
+      try {
+        // Crea nuovo Living PDF con la versione aggiornata
+        const pdfBytes = await fs.readFile(newFile.path);
+        const pdfDoc = await PDFDocument.load(pdfBytes);
+        
+        // Aggiunge campi di tracking
+        const form = pdfDoc.getForm();
+        const versionField = form.createTextField('__version');
+        versionField.setText(newVersion);
+        
+        const docIdField = form.createTextField('__docId');
+        docIdField.setText(documentId);
+        
+        const livingPdfBytes = await pdfDoc.save();
+        await fs.writeFile(newFilePath, livingPdfBytes);
+      } catch (error) {
+        // Se il PDF è corrotto o non può essere modificato, copialo semplicemente
+        console.warn('Could not modify PDF, copying original:', error.message);
+        const originalBytes = await fs.readFile(newFile.path);
+        await fs.writeFile(newFilePath, originalBytes);
+      }
+    } else {
+      // Per tutti gli altri tipi di file, copialo semplicemente
+      const originalBytes = await fs.readFile(newFile.path);
+      await fs.writeFile(newFilePath, originalBytes);
+    }
     
-    // Aggiunge campi di tracking
-    const form = pdfDoc.getForm();
-    const versionField = form.createTextField('__version');
-    versionField.setText(newVersion);
-    versionField.setFontSize(0);
+    // Aggiorna documento
+    db.prepare(`
+      UPDATE documents 
+      SET currentVersion = ?, filePath = ?, lastUpdate = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `).run(newVersion, newFilePath, documentId);
     
-    const docIdField = form.createTextField('__docId');
-    docIdField.setText(documentId);
-    docIdField.setFontSize(0);
-    
-    const livingPdfBytes = await pdfDoc.save();
-    const newFilePath = `living-pdfs/${documentId}-v${newVersion}.pdf`;
-    await fs.writeFile(newFilePath, livingPdfBytes);
-    
-    // Aggiorna database
-    doc.currentVersion = newVersion;
-    doc.lastUpdate = new Date();
-    doc.filePath = newFilePath;
-    
-    versions.set(`${documentId}-${newVersion}`, {
-      version: newVersion,
-      filePath: newFilePath,
-      timestamp: new Date()
-    });
+    // Salva nuova versione
+    db.prepare(`
+      INSERT INTO versions (documentId, version, filePath, created)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(documentId, newVersion, newFilePath);
     
     // Cleanup
-    await fs.unlink(newPdfFile.path);
+    await fs.unlink(newFile.path);
     
     res.json({
       success: true,
@@ -218,38 +627,526 @@ app.post('/api/update-document/:documentId', upload.single('pdf'), async (req, r
 });
 
 // ENDPOINT: Lista documenti dell'utente
-app.get('/api/documents', (req, res) => {
-  const docList = Array.from(documents.values()).map(doc => ({
-    id: doc.id,
-    name: doc.name,
-    version: doc.currentVersion,
-    created: doc.created,
-    lastUpdate: doc.lastUpdate,
-    downloads: doc.downloads,
-    activeViewers: doc.activeViewers,
-    updateFrequency: doc.updateFrequency
-  }));
-  
-  res.json(docList);
+app.get('/api/documents', requireAuth, (req, res) => {
+  try {
+    const docs = db.prepare(`
+      SELECT d.*, 
+             GROUP_CONCAT(v.version ORDER BY v.created) as allVersions
+      FROM documents d
+      LEFT JOIN versions v ON d.id = v.documentId
+      WHERE d.userId = ?
+      GROUP BY d.id
+      ORDER BY d.lastUpdate DESC
+    `).all(req.user.id);
+    
+    const docList = docs.map(doc => ({
+      id: doc.id,
+      name: doc.name,
+      version: doc.currentVersion,
+      created: doc.created,
+      lastUpdate: doc.lastUpdate,
+      downloads: doc.downloads,
+      activeViewers: doc.activeViewers,
+      updateFrequency: doc.updateFrequency,
+      accessToken: doc.accessToken,
+      publicUrl: `/api/public/${doc.accessToken}`,
+      versions: doc.allVersions ? doc.allVersions.split(',') : [doc.currentVersion],
+      available: !!doc.available
+    }));
+    
+    res.json(docList);
+  } catch (error) {
+    console.error('Error listing documents:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ENDPOINT: Analytics globali
+app.get('/api/analytics', requireAuth, (req, res) => {
+  try {
+    // Statistiche generali per l'utente corrente
+    const totalDocuments = db.prepare('SELECT COUNT(*) as count FROM documents WHERE userId = ?').get(req.user.id).count;
+    const totalDownloads = db.prepare('SELECT SUM(downloads) as total FROM documents WHERE userId = ?').get(req.user.id).total || 0;
+    const totalVersions = db.prepare(`
+      SELECT COUNT(*) as count FROM versions v 
+      JOIN documents d ON v.documentId = d.id 
+      WHERE d.userId = ?
+    `).get(req.user.id).count;
+    
+    // Documenti più scaricati dell'utente corrente
+    const topDocuments = db.prepare(`
+      SELECT name, downloads, currentVersion, created 
+      FROM documents 
+      WHERE userId = ?
+      ORDER BY downloads DESC 
+      LIMIT 10
+    `).all(req.user.id);
+    
+    // Statistiche per mese dell'utente corrente
+    const monthlyStats = db.prepare(`
+      SELECT 
+        strftime('%Y-%m', created) as month,
+        COUNT(*) as documents,
+        SUM(downloads) as downloads
+      FROM documents 
+      WHERE userId = ?
+      GROUP BY strftime('%Y-%m', created)
+      ORDER BY month DESC 
+      LIMIT 12
+    `).all(req.user.id);
+    
+    // Versioni per documento dell'utente corrente
+    const documentVersions = db.prepare(`
+      SELECT 
+        d.name,
+        d.currentVersion,
+        COUNT(v.id) as totalVersions,
+        MAX(v.created) as lastVersionDate
+      FROM documents d
+      LEFT JOIN versions v ON d.id = v.documentId
+      WHERE d.userId = ?
+      GROUP BY d.id
+      ORDER BY totalVersions DESC
+    `).all(req.user.id);
+    
+    res.json({
+      summary: {
+        totalDocuments,
+        totalDownloads,
+        totalVersions,
+        averageVersionsPerDoc: totalDocuments > 0 ? (totalVersions / totalDocuments).toFixed(1) : 0
+      },
+      topDocuments,
+      monthlyStats,
+      documentVersions
+    });
+  } catch (error) {
+    console.error('Error getting analytics:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ENDPOINT: Cambia versione distribuita di un documento
+app.post('/api/set-current-version/:documentId', requireAuth, (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const { version } = req.body;
+    
+    // Verifica che il documento esista e appartenga all'utente
+    const doc = db.prepare('SELECT * FROM documents WHERE id = ? AND userId = ?').get(documentId, req.user.id);
+    if (!doc) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    
+    // Verifica che la versione esista
+    const versionExists = db.prepare(`
+      SELECT * FROM versions WHERE documentId = ? AND version = ?
+    `).get(documentId, version);
+    
+    if (!versionExists) {
+      return res.status(404).json({ error: 'Version not found' });
+    }
+    
+    // Aggiorna la versione corrente e il path del file
+    db.prepare(`
+      UPDATE documents 
+      SET currentVersion = ?, filePath = ?, lastUpdate = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `).run(version, versionExists.filePath, documentId);
+    
+    res.json({ 
+      success: true, 
+      documentId, 
+      newCurrentVersion: version,
+      message: `Versione ${version} è ora la versione distribuita`
+    });
+  } catch (error) {
+    console.error('Error setting current version:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ENDPOINT: Toggle document availability
+app.post('/api/toggle-availability/:documentId', requireAuth, (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const { available } = req.body;
+    
+    // Verifica che il documento esista e appartenga all'utente
+    const doc = db.prepare('SELECT * FROM documents WHERE id = ? AND userId = ?').get(documentId, req.user.id);
+    if (!doc) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    
+    // Aggiorna disponibilità
+    db.prepare(`
+      UPDATE documents 
+      SET available = ?, lastUpdate = CURRENT_TIMESTAMP 
+      WHERE id = ? AND userId = ?
+    `).run(available ? 1 : 0, documentId, req.user.id);
+    
+    res.json({ 
+      success: true, 
+      documentId, 
+      available: !!available,
+      message: `Document is now ${available ? 'available' : 'unavailable'}`
+    });
+  } catch (error) {
+    console.error('Error toggling availability:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ENDPOINT: Get server configuration
+app.get('/api/config', requireAuth, (req, res) => {
+  try {
+    res.json({
+      retentionDays: RETENTION_DAYS,
+      cleanupInterval: CLEANUP_INTERVAL,
+      maxFileSize: process.env.MAX_FILE_SIZE || '50MB',
+      maxFilesPerUser: process.env.MAX_FILES_PER_USER || 100
+    });
+  } catch (error) {
+    console.error('Error getting config:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ENDPOINT: Get users (admin only)
+app.get('/api/users', requireAuth, (req, res) => {
+  try {
+    if (req.user.username !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const users = db.prepare(`
+      SELECT id, username, email, created, lastLogin, isActive 
+      FROM users 
+      ORDER BY created DESC
+    `).all();
+
+    res.json(users);
+  } catch (error) {
+    console.error('Error getting users:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ENDPOINT: Create user (admin only)
+app.post('/api/users', requireAuth, async (req, res) => {
+  try {
+    if (req.user.username !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { username, password, email } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+
+    // Check if user exists
+    const existingUser = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+    if (existingUser) {
+      return res.status(409).json({ error: 'Username already exists' });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create user
+    const result = db.prepare(`
+      INSERT INTO users (username, password, email, created)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(username, hashedPassword, email || null);
+
+    res.json({
+      success: true,
+      message: 'User created successfully',
+      userId: result.lastInsertRowid
+    });
+  } catch (error) {
+    console.error('Error creating user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ENDPOINT: Update user (admin only)
+app.put('/api/users/:userId', requireAuth, async (req, res) => {
+  try {
+    if (req.user.username !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { userId } = req.params;
+    const { username, password, email } = req.body;
+
+    if (!username) {
+      return res.status(400).json({ error: 'Username required' });
+    }
+
+    // Check if user exists
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if username is taken by another user
+    const existingUser = db.prepare('SELECT * FROM users WHERE username = ? AND id != ?').get(username, userId);
+    if (existingUser) {
+      return res.status(409).json({ error: 'Username already exists' });
+    }
+
+    // Update user
+    if (password) {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      db.prepare(`
+        UPDATE users 
+        SET username = ?, password = ?, email = ? 
+        WHERE id = ?
+      `).run(username, hashedPassword, email || null, userId);
+    } else {
+      db.prepare(`
+        UPDATE users 
+        SET username = ?, email = ? 
+        WHERE id = ?
+      `).run(username, email || null, userId);
+    }
+
+    res.json({
+      success: true,
+      message: 'User updated successfully'
+    });
+  } catch (error) {
+    console.error('Error updating user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ENDPOINT: Delete user (admin only)
+app.delete('/api/users/:userId', requireAuth, (req, res) => {
+  try {
+    if (req.user.username !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { userId } = req.params;
+
+    // Check if user exists
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Prevent deleting admin user
+    if (user.username === 'admin') {
+      return res.status(403).json({ error: 'Cannot delete admin user' });
+    }
+
+    // Delete user (documents will be cascade deleted)
+    db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+
+    res.json({
+      success: true,
+      message: 'User deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ENDPOINT: Change password
+app.post('/api/change-password', requireAuth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current and new passwords required' });
+    }
+
+    // Get current user
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Verify current password
+    const isValidPassword = await bcrypt.compare(currentPassword, user.password);
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update password
+    db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashedPassword, req.user.id);
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully'
+    });
+  } catch (error) {
+    console.error('Error changing password:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ENDPOINT: Delete document
+app.delete('/api/documents/:documentId', requireAuth, async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    
+    // Verifica che il documento esista e appartenga all'utente
+    const doc = db.prepare('SELECT * FROM documents WHERE id = ? AND userId = ?').get(documentId, req.user.id);
+    if (!doc) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    
+    // Ottieni tutte le versioni del documento per eliminare i file
+    const versions = db.prepare('SELECT filePath FROM versions WHERE documentId = ?').all(documentId);
+    
+    // Elimina tutti i file fisici delle versioni
+    for (const version of versions) {
+      try {
+        await fs.unlink(version.filePath).catch(() => {}); // Ignora errori se file non esiste
+      } catch (error) {
+        console.warn(`Could not delete file ${version.filePath}:`, error.message);
+      }
+    }
+    
+    // Elimina il file corrente del documento
+    try {
+      await fs.unlink(doc.filePath).catch(() => {});
+    } catch (error) {
+      console.warn(`Could not delete current file ${doc.filePath}:`, error.message);
+    }
+    
+    // Elimina le versioni dal database (cascade delete dovrebbe gestire questo)
+    db.prepare('DELETE FROM versions WHERE documentId = ?').run(documentId);
+    
+    // Elimina il documento dal database
+    db.prepare('DELETE FROM documents WHERE id = ? AND userId = ?').run(documentId, req.user.id);
+    
+    res.json({
+      success: true,
+      message: 'Document deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting document:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ENDPOINT: Download versione specifica di un documento
+app.get('/api/download/:documentId/version/:version', requireAuth, async (req, res) => {
+  try {
+    const { documentId, version } = req.params;
+    
+    // Trova versione specifica per l'utente corrente
+    const versionData = db.prepare(`
+      SELECT v.*, d.name 
+      FROM versions v 
+      JOIN documents d ON v.documentId = d.id 
+      WHERE v.documentId = ? AND v.version = ? AND d.userId = ?
+    `).get(documentId, version, req.user.id);
+    
+    if (!versionData) {
+      return res.status(404).json({ error: 'Document or version not found' });
+    }
+    
+    const fileBytes = await fs.readFile(versionData.filePath);
+    const fileExtension = path.extname(versionData.filePath);
+    
+    // Determina il content type in base all'estensione
+    let contentType = 'application/octet-stream'; // Default
+    if (fileExtension === '.pdf') {
+      contentType = 'application/pdf';
+    } else if (fileExtension === '.jpg' || fileExtension === '.jpeg') {
+      contentType = 'image/jpeg';
+    } else if (fileExtension === '.png') {
+      contentType = 'image/png';
+    } else if (fileExtension === '.txt') {
+      contentType = 'text/plain';
+    } else if (fileExtension === '.doc') {
+      contentType = 'application/msword';
+    } else if (fileExtension === '.docx') {
+      contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
+    
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${versionData.name}-v${version}${fileExtension}"`);
+    res.send(fileBytes);
+    
+  } catch (error) {
+    console.error('Error downloading specific version:', error);
+    res.status(500).json({ error: 'File not found' });
+  }
 });
 
 // Genera il codice JavaScript per l'auto-aggiornamento
-function generateUpdateScript(documentId, currentVersion) {
+function generateUpdateScript(documentId, currentVersion, updateFrequency = 'manual') {
+  // Calcola l'intervallo in millisecondi
+  const intervals = {
+    'manual': 0, // Nessun controllo automatico
+    'daily': 24 * 60 * 60 * 1000, // 1 giorno
+    'weekly': 7 * 24 * 60 * 60 * 1000, // 1 settimana  
+    'monthly': 30 * 24 * 60 * 60 * 1000 // 1 mese
+  };
+  
+  const checkInterval = intervals[updateFrequency] || 0;
+  
   return `
-    // Living PDF Auto-Update Script v1.0
+    // Living PDF Auto-Update Script v2.0
     // Generato automaticamente - Non modificare
     
     var documentId = "${documentId}";
     var currentVersion = "${currentVersion}";
-    var baseUrl = "https://your-domain.com"; // Sostituire con URL reale
+    var updateFrequency = "${updateFrequency}";
+    var checkInterval = ${checkInterval};
+    var baseUrl = "http://localhost:3000"; // TODO: Cambiare con URL pubblico in produzione
     
     // Funzione principale di controllo aggiornamenti
     function checkForUpdates() {
       try {
+        console.println("=== LIVING PDF DEBUG ===");
+        console.println("Document ID: " + documentId);
+        console.println("Current Version: " + currentVersion);
+        console.println("Update Frequency: " + updateFrequency);
+        console.println("Base URL: " + baseUrl);
+        
+        // Verifica se Net.HTTP è disponibile
+        if (typeof Net === 'undefined' || typeof Net.HTTP === 'undefined') {
+          console.println("ERRORE: Net.HTTP non disponibile in questo PDF viewer");
+          app.alert("Questo PDF viewer non supporta gli aggiornamenti automatici.\\n\\nScarica manualmente dal server: " + baseUrl + "/api/download/" + documentId);
+          return;
+        }
+        
+        // Test di sicurezza prima di procedere
+        try {
+          // Prova a creare un oggetto HTTP per verificare i permessi
+          var testRequest = Net.HTTP;
+          if (!testRequest) {
+            throw new Error("Net.HTTP bloccato dalle impostazioni di sicurezza");
+          }
+        } catch (securityError) {
+          console.println("ERRORE SICUREZZA: " + securityError.message);
+          app.alert("Aggiornamenti bloccati dalla sicurezza di Adobe.\\n\\n" +
+                   "Per abilitare:\\n" +
+                   "1. Edit > Preferences > Security (Enhanced)\\n" +
+                   "2. Disabilita 'Enable Enhanced Security'\\n" +
+                   "3. Riavvia Adobe\\n\\n" +
+                   "Oppure scarica manualmente: " + baseUrl + "/api/download/" + documentId);
+          return;
+        }
+        
         // Costruisce URL per controllo aggiornamenti
         var checkUrl = baseUrl + "/api/check-update/" + documentId + "?currentVersion=" + currentVersion;
+        console.println("URL controllo: " + checkUrl);
         
         // Effettua richiesta HTTP
+        console.println("Tentativo richiesta HTTP...");
         var response = Net.HTTP.request({
           cURL: checkUrl,
           cMethod: "GET",
@@ -258,8 +1155,13 @@ function generateUpdateScript(documentId, currentVersion) {
           }
         });
         
+        console.println("Risposta ricevuta: " + (response ? "SI" : "NO"));
+        
         if (response) {
+          console.println("Risposta JSON: " + response);
           var updateInfo = JSON.parse(response);
+          console.println("Update disponibile: " + updateInfo.hasUpdate);
+          console.println("Nuova versione: " + updateInfo.version);
           
           if (updateInfo.hasUpdate) {
             // Chiede all'utente se vuole aggiornare
@@ -275,10 +1177,13 @@ function generateUpdateScript(documentId, currentVersion) {
               downloadUpdate(updateInfo.downloadUrl, updateInfo.version);
             }
           }
+        } else {
+          console.println("ERRORE: Nessuna risposta dal server");
+          app.alert("Impossibile controllare aggiornamenti.\\nServer non raggiungibile: " + baseUrl);
         }
       } catch (error) {
-        // Errore silenzioso - il PDF funziona comunque offline
-        console.println("Controllo aggiornamenti non riuscito: " + error.message);
+        console.println("ERRORE Controllo aggiornamenti: " + error.message);
+        app.alert("Errore controllo aggiornamenti: " + error.message);
       }
     }
     
@@ -310,12 +1215,49 @@ function generateUpdateScript(documentId, currentVersion) {
       }
     }
     
+    // Funzione per gestire controlli automatici periodici
+    function setupAutomaticChecks() {
+      if (checkInterval > 0) {
+        try {
+          // Carica il timestamp dell'ultimo controllo
+          var lastCheckKey = "living_pdf_last_check_" + documentId;
+          var lastCheck = global[lastCheckKey] || 0;
+          var now = new Date().getTime();
+          
+          // Controlla se è passato abbastanza tempo
+          if (now - lastCheck >= checkInterval) {
+            checkForUpdates();
+            global[lastCheckKey] = now;
+          }
+          
+          // Imposta il prossimo controllo automatico
+          var nextCheckDelay = checkInterval - (now - lastCheck);
+          if (nextCheckDelay > 0) {
+            app.setTimeOut("setupAutomaticChecks()", nextCheckDelay);
+          } else {
+            app.setTimeOut("setupAutomaticChecks()", checkInterval);
+          }
+          
+          console.println("Prossimo controllo automatico in: " + Math.round(nextCheckDelay / 1000 / 60) + " minuti");
+        } catch (error) {
+          console.println("Errore setup controlli automatici: " + error.message);
+        }
+      }
+    }
+    
+    // Test immediato che JavaScript funziona
+    app.alert("Living PDF caricato!\\nDocument ID: " + documentId + "\\nVersione: " + currentVersion);
+    
     // Esegue controllo all'apertura del documento
-    // Con un delay per permettere al documento di caricarsi completamente
     app.setTimeOut("checkForUpdates()", 2000);
     
-    // Messaggio discreto di feedback (solo per debug)
-    console.println("Living PDF v" + currentVersion + " - Controllo aggiornamenti abilitato");
+    // Avvia controlli automatici se configurati
+    if (checkInterval > 0) {
+      app.setTimeOut("setupAutomaticChecks()", 5000);
+      console.println("Living PDF v" + currentVersion + " - Controlli automatici ogni " + updateFrequency);
+    } else {
+      console.println("Living PDF v" + currentVersion + " - Solo controlli manuali");
+    }
   `;
 }
 
@@ -328,12 +1270,40 @@ app.get('*', (req, res) => {
 
 // Avvia server
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Living PDF Service running on port ${PORT}`);
-  
-  // Crea cartelle necessarie
-  fs.mkdir('living-pdfs', { recursive: true }).catch(() => {});
-  fs.mkdir('uploads', { recursive: true }).catch(() => {});
+
+async function startServer() {
+  try {
+    // Inizializza database
+    await initDatabase();
+    
+    // Avvia cleanup scheduler
+    startCleanupScheduler();
+    
+    // Crea cartelle necessarie
+    await fs.mkdir('living-pdfs', { recursive: true }).catch(() => {});
+    await fs.mkdir('uploads', { recursive: true }).catch(() => {});
+    
+    app.listen(PORT, () => {
+      console.log(`🚀 Living PDF Service running on port ${PORT}`);
+      console.log(`📊 Database: ${DB_PATH}`);
+      console.log(`🧹 Retention: ${RETENTION_DAYS} giorni`);
+    });
+  } catch (error) {
+    console.error('Errore avvio server:', error);
+    process.exit(1);
+  }
+}
+
+// Gestione graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('\n🔄 Chiusura server...');
+  if (db) {
+    db.close();
+    console.log('📁 Database SQLite chiuso correttamente');
+  }
+  process.exit(0);
 });
+
+startServer();
 
 module.exports = app;

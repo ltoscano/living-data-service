@@ -1,23 +1,24 @@
 {
-  "name": "living-pdf-service",
+  "name": "living-data-service",
   "version": "1.0.0",
-  "description": "Transform static PDFs into self-updating documents",
+  "description": "Document management with version control and secure user access",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "dev:frontend": "vite",
     "build:frontend": "vite build",
+    "migrate": "node migrate-db.js",
     "setup": "node src/setup.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "docker:build": "docker build -t living-pdf-service .",
     "docker:run": "docker-compose up"
   },
   "keywords": [
-    "pdf",
-    "auto-update",
-    "living-documents",
-    "javascript",
+    "document-management",
+    "version-control",
+    "user-authentication",
+    "data-management",
     "sqlite",
     "self-hosted"
   ],
@@ -26,7 +27,12 @@
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.2",
     "autoprefixer": "^10.4.21",
+    "bcryptjs": "^3.0.2",
+    "better-sqlite3": "^12.2.0",
+    "dotenv": "^17.2.2",
     "express": "^4.18.2",
+    "express-session": "^1.18.2",
+    "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.544.0",
     "multer": "^1.4.5-lts.1",
     "pdf-lib": "^1.17.1",
