@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  living-pdf:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+      - ./living-pdfs:/app/living-pdfs
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - DB_PATH=/app/data/living-pdf.db
+    restart: unless-stopped

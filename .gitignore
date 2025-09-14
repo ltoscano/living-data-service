@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploads e file generati
+uploads/
+living-pdfs/
+
+# Environment
+.env
+
+# Logs
+*.log
+logs/
+
+# Runtime
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Coverage
+coverage/
+.nyc_output
