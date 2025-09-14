@@ -416,6 +416,11 @@ app.get('/api/public/:accessToken', async (req, res) => {
     const targetDoc = db.prepare('SELECT * FROM documents WHERE accessToken = ?').get(accessToken);
     
     if (!targetDoc) {
+      // Header per evitare caching delle pagine di errore
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      
       return res.status(404).send(`
         <!DOCTYPE html>
         <html lang="en">
@@ -445,6 +450,11 @@ app.get('/api/public/:accessToken', async (req, res) => {
     
     // Check if document is available
     if (!targetDoc.available) {
+      // Header per evitare caching delle pagine di errore (unavailable)
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      
       return res.status(410).send(`
         <!DOCTYPE html>
         <html lang="en">
@@ -492,6 +502,21 @@ app.get('/api/public/:accessToken', async (req, res) => {
       contentType = 'application/msword';
     } else if (fileExtension === '.docx') {
       contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
+    
+    // Header per gestione cache intelligente per documenti disponibili
+    // ETag basato su ID documento, versione e stato di disponibilità
+    const etag = `"${targetDoc.id}-${targetDoc.currentVersion}-${targetDoc.available ? 'available' : 'unavailable'}-${targetDoc.lastUpdate}"`;
+    res.setHeader('ETag', etag);
+    
+    // Cache per 1 minuto ma richiedi validazione
+    res.setHeader('Cache-Control', 'public, max-age=60, must-revalidate');
+    res.setHeader('Last-Modified', new Date(targetDoc.lastUpdate).toUTCString());
+    
+    // Controlla If-None-Match per supportare ETag
+    const clientETag = req.headers['if-none-match'];
+    if (clientETag && clientETag === etag) {
+      return res.status(304).end(); // Not Modified
     }
     
     res.setHeader('Content-Type', contentType);
