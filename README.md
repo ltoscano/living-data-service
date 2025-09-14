@@ -1,4 +1,8 @@
-# 🚀 Living Data Service
+<div align="center">
+  <img src="logo.png" alt="Living Data Service Logo" width="256" height="256">
+</div>
+
+# Living Data Service
 
 **Modern document management made simple.** Deploy in seconds with Docker, upload any file type, and share with secure public links. Features intelligent version control, real-time analytics, and enterprise-grade security.
 
@@ -16,11 +20,11 @@ Perfect for teams, developers, and organizations who need professional document 
 
 Think of it as your own private file CDN with version control. Perfect for documentation, assets, PDFs, images, AI project artifacts, or any file you need to share with consistent URLs.
 
-## 🚀 Deployment Options
+## Deployment Options
 
 Choose your deployment method based on your needs:
 
-### 🏠 Option 1: Local Development
+### Option 1: Local Development
 Perfect for testing and development on your local machine.
 
 ```bash
@@ -44,7 +48,7 @@ RETENTION_DAYS=30
 
 ---
 
-### 🌐 Option 2: Local + ngrok (Public Access)
+### Option 2: Local + ngrok (Public Access)
 Expose your local instance to the internet for testing or sharing.
 
 1. **Start the service locally:**
@@ -79,7 +83,7 @@ docker-compose down && docker-compose up -d
 
 ---
 
-### ☁️ Option 3: VPS Deployment
+### Option 3: VPS Deployment
 Deploy on any VPS (DigitalOcean, AWS, etc.) with proper domain and SSL.
 
 1. **On your VPS, clone and configure:**
@@ -123,12 +127,19 @@ server {
     ssl_certificate /path/to/cert.pem;
     ssl_certificate_key /path/to/key.pem;
     
+    # Allow large file uploads (adjust based on your MAX_FILE_SIZE setting)
+    client_max_body_size 100M;
+    
     location / {
         proxy_pass http://localhost:3000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Timeout settings for large file uploads
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
     }
 }
 ```
@@ -137,7 +148,7 @@ server {
 
 ---
 
-### 💻 Option 4: Host Compilation (No Docker)
+### Option 4: Host Compilation (No Docker)
 Run directly on your host system without containers.
 
 1. **Install dependencies:**
@@ -171,7 +182,7 @@ npm start
 
 ---
 
-## 📋 Environment Variables Reference
+## Environment Variables Reference
 
 ### Core Settings
 | Variable | Description | Default | Required |
@@ -204,16 +215,16 @@ After deployment, visit your service URL and:
 3. Share the generated public link with anyone
 4. Manage versions, users, and availability from **"Manage"**
 
-## 🎯 What You Get
+## What You Get
 
-- ✅ **Universal File Support**: PDFs, images, documents, any file type
-- ✅ **Version Management**: Upload new versions, control which one is distributed
-- ✅ **Public Sharing**: Permanent links that always serve the current version
-- ✅ **User Management**: Multi-user support with admin controls
-- ✅ **Secure Access**: Login required for management, public links for sharing
-- ✅ **Modern UI**: Clean, responsive interface with elegant modals
+- **Universal File Support**: PDFs, images, documents, any file type
+- **Version Management**: Upload new versions, control which one is distributed
+- **Public Sharing**: Permanent links that always serve the current version
+- **User Management**: Multi-user support with admin controls
+- **Secure Access**: Login required for management, public links for sharing
+- **Modern UI**: Clean, responsive interface with elegant modals
 
-## 📊 How It Works
+## How It Works
 
 1. **Upload**: Any file type through the web interface
 2. **Generate**: Automatic public link creation
@@ -221,28 +232,28 @@ After deployment, visit your service URL and:
 4. **Update**: Upload new versions anytime
 5. **Control**: Toggle availability, manage users, view analytics
 
-## 🔄 Version Management
+## Version Management
 
 - Upload new versions of your documents
 - Choose which version to distribute publicly
 - Public links always serve the currently selected version
 - Full version history with individual download options
 
-## 👥 User Management (Admin Only)
+## User Management (Admin Only)
 
 - Create, edit, delete users
 - Password management for all users
 - Each user sees only their own documents
 - Role-based access control
 
-## 🛠️ Development & API
+## Development & API
 
 ### Building Frontend Only
 ```bash
 npm run build:frontend  # Build React app
 ```
 
-## 📡 API Access
+## API Access
 
 The service provides a full REST API:
 - `POST /api/create-living-pdf` - Upload document
@@ -251,7 +262,7 @@ The service provides a full REST API:
 - `DELETE /api/documents/:id` - Delete document
 - Full user management endpoints for admin users
 
-## 🔒 Security Features
+## Security Features
 
 - Session-based authentication with secure cookies
 - Password hashing with bcrypt
@@ -259,7 +270,7 @@ The service provides a full REST API:
 - CSRF protection and input validation
 - Configurable retention policies for automatic cleanup
 
-## 📁 File Structure
+## File Structure
 
 ```
 living-data-service/
@@ -272,23 +283,23 @@ living-data-service/
 └── migrate-db.js          # Database setup
 ```
 
-## 🔧 Important Security Notes
+## Important Security Notes
 
 ### Production Checklist
-- ✅ Change default admin password immediately
-- ✅ Use strong `JWT_SECRET` (generate with: `openssl rand -hex 32`)
-- ✅ Set `SECURE_COOKIES=true` for HTTPS deployments
-- ✅ Configure proper backup strategy for `/data` folder
-- ✅ Use reverse proxy (nginx/apache) for SSL termination
+- Change default admin password immediately
+- Use strong `JWT_SECRET` (generate with: `openssl rand -hex 32`)
+- Set `SECURE_COOKIES=true` for HTTPS deployments
+- Configure proper backup strategy for `/data` folder
+- Use reverse proxy (nginx/apache) for SSL termination
 
-## 💡 Tips
+## Tips
 
 - **First Time**: Run the migration script if upgrading: `npm run migrate`
 - **Backup**: The `data/` folder contains your database and uploaded files
 - **Performance**: Use a reverse proxy for production deployments
 - **Security**: Change default admin password after first login
 
-## 🤝 Professional Support
+## Professional Support
 
 Need custom integrations or enterprise features? 
 
@@ -300,4 +311,4 @@ Need custom integrations or enterprise features?
 
 ---
 
-**Made with ❤️ for simple, effective document management.**
+**Made with care for simple, effective document management.**

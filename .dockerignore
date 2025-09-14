@@ -17,4 +17,8 @@ data
 docs
 uploads
 living-pdfs
-public
+# Exclude public build artifacts but keep source assets
+public/assets/*.js
+public/assets/*.css
+public/src
+# Keep public root files like logo.png

@@ -692,7 +692,7 @@ const LivingDataService = () => {
   // Loading screen
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#fbf7f1' }}>
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading...</p>
@@ -704,8 +704,19 @@ const LivingDataService = () => {
   // Login screen
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#fbf7f1' }}>
         <div className="max-w-md w-full mx-4">
+          {/* Logo section with matching background */}
+          <div className="text-center mb-6">
+            <div className="inline-block rounded-full p-4 shadow-sm" style={{ backgroundColor: '#fbf7f1' }}>
+              <img 
+                src="/logo.png" 
+                alt="Living Data Service Logo" 
+                className="w-64 h-64 object-contain"
+              />
+            </div>
+          </div>
+          
           <div className="bg-white rounded-xl shadow-lg p-8">
             <div className="text-center mb-8">
               <h1 className="text-3xl font-bold text-gray-900 mb-2">Living Data Service</h1>
@@ -775,8 +786,9 @@ const LivingDataService = () => {
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-6 bg-gray-50 min-h-screen">
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+    <div className="min-h-screen" style={{ backgroundColor: '#fbf7f1' }}>
+      <div className="max-w-6xl mx-auto p-6">
+        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
         {/* Header */}
         <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-6 relative">
           <h1 className="text-3xl font-bold mb-2">Living Data Service</h1>
@@ -819,7 +831,7 @@ const LivingDataService = () => {
         </div>
 
         {/* Navigation */}
-        <div className="flex gap-2 p-6 border-b bg-gray-50">
+        <div className="flex gap-2 p-6 border-b" style={{ backgroundColor: '#fbf7f1' }}>
           <TabButton id="upload" label="Add Data" icon={Upload} />
           <TabButton id="manage" label="Manage" icon={Settings} />
           <TabButton id="analytics" label="Analytics" icon={BarChart3} />
@@ -989,9 +1001,9 @@ const LivingDataService = () => {
               </div>
               
               {/* Scrollable Documents List */}
-              <div className="max-h-96 overflow-y-auto space-y-4 border rounded-lg p-4 bg-gray-50">
+              <div className="max-h-96 overflow-y-auto space-y-4 border rounded-lg p-4" style={{ backgroundColor: '#fbf7f1' }}>
                 {filteredAndSortedDocuments.length > 0 ? filteredAndSortedDocuments.map((doc) => (
-                  <div key={doc.id} className="bg-gray-50 rounded-lg p-4">
+                  <div key={doc.id} className="rounded-lg p-4" style={{ backgroundColor: '#fbf7f1' }}>
                     {/* Document header */}
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center gap-4">
@@ -1137,7 +1149,7 @@ const LivingDataService = () => {
                   
                   <div className="bg-white rounded-lg border overflow-hidden">
                     <table className="w-full">
-                      <thead className="bg-gray-50">
+                      <thead style={{ backgroundColor: '#fbf7f1' }}>
                         <tr>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Username</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
@@ -1234,7 +1246,7 @@ const LivingDataService = () => {
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     {/* Most downloaded documents */}
-                    <div className="bg-gray-50 rounded-lg p-6">
+                    <div className="rounded-lg p-6" style={{ backgroundColor: '#fbf7f1' }}>
                       <h3 className="text-lg font-semibold mb-4">Most downloaded documents</h3>
                       <div className="space-y-3">
                         {analytics.topDocuments.length > 0 ? analytics.topDocuments.map((doc, index) => (
@@ -1255,7 +1267,7 @@ const LivingDataService = () => {
                     </div>
 
                     {/* Versions per document */}
-                    <div className="bg-gray-50 rounded-lg p-6">
+                    <div className="rounded-lg p-6" style={{ backgroundColor: '#fbf7f1' }}>
                       <h3 className="text-lg font-semibold mb-4">Version history</h3>
                       <div className="space-y-3">
                         {analytics.documentVersions.length > 0 ? analytics.documentVersions.map((doc, index) => (
@@ -1281,7 +1293,7 @@ const LivingDataService = () => {
 
                   {/* Monthly statistics */}
                   {analytics.monthlyStats.length > 0 && (
-                    <div className="mt-8 bg-gray-50 rounded-lg p-6">
+                    <div className="mt-8 rounded-lg p-6" style={{ backgroundColor: '#fbf7f1' }}>
                       <h3 className="text-lg font-semibold mb-4">Monthly statistics</h3>
                       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
                         {analytics.monthlyStats.map((stat, index) => (
@@ -1306,6 +1318,7 @@ const LivingDataService = () => {
               )}
             </div>
           )}
+        </div>
         </div>
       </div>
       
