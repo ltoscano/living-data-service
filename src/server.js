@@ -794,7 +794,7 @@ app.post('/api/set-current-version/:documentId', requireAuth, (req, res) => {
       success: true, 
       documentId, 
       newCurrentVersion: version,
-      message: `Versione ${version} è ora la versione distribuita`
+      message: `Version ${version} is now the distributed version`
     });
   } catch (error) {
     console.error('Error setting current version:', error);
@@ -1216,11 +1216,11 @@ function generateUpdateScript(documentId, currentVersion, updateFrequency = 'man
           }
         } else {
           console.println("ERRORE: Nessuna risposta dal server");
-          app.alert("Impossibile controllare aggiornamenti.\\nServer non raggiungibile: " + baseUrl);
+          app.alert("Cannot check for updates.\\nServer unreachable: " + baseUrl);
         }
       } catch (error) {
         console.println("ERRORE Controllo aggiornamenti: " + error.message);
-        app.alert("Errore controllo aggiornamenti: " + error.message);
+        app.alert("Update check error: " + error.message);
       }
     }
     
@@ -1242,13 +1242,13 @@ function generateUpdateScript(documentId, currentVersion, updateFrequency = 'man
           // Apre la nuova versione
           app.openDoc(tempPath);
           
-          app.alert("Documento aggiornato alla versione " + newVersion + "!");
+          app.alert("Document updated to version " + newVersion + "!");
           
           // Chiude la versione corrente
           this.closeDoc();
         }
       } catch (error) {
-        app.alert("Errore durante l'aggiornamento: " + error.message);
+        app.alert("Error during update: " + error.message);
       }
     }
     
