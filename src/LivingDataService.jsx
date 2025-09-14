@@ -1239,7 +1239,16 @@ const LivingDataService = () => {
                     </div>
                     
                     <div className="bg-orange-50 p-6 rounded-lg">
-                      <h3 className="text-lg font-semibold text-orange-900">Average Versions</h3>
+                      <div className="flex items-center gap-2 mb-2">
+                        <h3 className="text-lg font-semibold text-orange-900">Average Versions</h3>
+                        <div className="relative group">
+                          <Info size={16} className="text-orange-600 cursor-help" />
+                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover:block bg-gray-900 text-white text-sm rounded py-2 px-3 whitespace-nowrap z-10">
+                            Average number of versions per document
+                            <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+                          </div>
+                        </div>
+                      </div>
                       <p className="text-3xl font-bold text-orange-600">{analytics.summary.averageVersionsPerDoc}</p>
                     </div>
                   </div>
