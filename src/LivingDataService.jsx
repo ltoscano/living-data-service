@@ -1243,8 +1243,8 @@ const LivingDataService = () => {
                         <h3 className="text-lg font-semibold text-orange-900">Average Versions</h3>
                         <div className="relative group">
                           <Info size={16} className="text-orange-600 cursor-help" />
-                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover:block bg-gray-900 text-white text-sm rounded py-2 px-3 whitespace-nowrap z-10">
-                            Average number of versions per document
+                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover:block bg-gray-900 text-white text-sm rounded py-2 px-3 w-48 text-center z-10">
+                            Average number of<br />versions per document
                             <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
                           </div>
                         </div>
