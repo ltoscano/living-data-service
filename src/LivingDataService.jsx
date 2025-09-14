@@ -12,6 +12,7 @@ const LivingDataService = () => {
   const [sortBy, setSortBy] = useState('created'); // 'title', 'created'
   const [sortOrder, setSortOrder] = useState('desc'); // 'asc', 'desc'
   const [retentionDays, setRetentionDays] = useState(null);
+  const [version, setVersion] = useState(null);
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -140,6 +141,7 @@ const LivingDataService = () => {
       if (response.ok) {
         const config = await response.json();
         setRetentionDays(config.retentionDays);
+        setVersion(config.version);
       }
     } catch (error) {
       console.error('Error loading config:', error);
@@ -757,6 +759,17 @@ const LivingDataService = () => {
             */}
           </div>
         </div>
+        
+        {/* Modal for login errors */}
+        <Modal
+          show={modal.show}
+          type={modal.type}
+          title={modal.title}
+          message={modal.message}
+          publicUrl={modal.publicUrl}
+          onConfirm={modal.onConfirm}
+          onClose={closeModal}
+        />
       </div>
     );
   }
@@ -785,6 +798,13 @@ const LivingDataService = () => {
                 >
                   Logout
                 </button>
+              </div>
+            )}
+            {version && (
+              <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full">
+                <span className="text-sm font-medium">
+                  v{version}
+                </span>
               </div>
             )}
             {retentionDays && (

@@ -15,6 +15,7 @@ const app = express();
 const upload = multer({ dest: 'uploads/' });
 
 // Configurazione da environment variables
+const VERSION = '0.80'; // Version of Living Data Service - easily modifiable
 const DB_PATH = process.env.DB_PATH || './data/documents.db';
 const RETENTION_DAYS = parseInt(process.env.RETENTION_DAYS) || 30;
 const CLEANUP_INTERVAL = parseInt(process.env.CLEANUP_INTERVAL_MINUTES) || 5;
@@ -836,6 +837,7 @@ app.post('/api/toggle-availability/:documentId', requireAuth, (req, res) => {
 app.get('/api/config', requireAuth, (req, res) => {
   try {
     res.json({
+      version: VERSION,
       retentionDays: RETENTION_DAYS,
       cleanupInterval: CLEANUP_INTERVAL,
       maxFileSize: process.env.MAX_FILE_SIZE || '50MB',
