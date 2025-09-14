@@ -28,7 +28,7 @@ Choose your deployment method based on your needs:
 Perfect for testing and development on your local machine.
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/ltoscano/living-data-service.git
 cd living-data-service
 docker-compose up --build -d
 ```
