@@ -9,12 +9,12 @@ Perfect for teams, developers, and organizations who need professional document 
 **Living Data Service transforms your documents into a personal CDN.** Every uploaded file gets a permanent public link that:
 
 - 🔗 **Always serves the latest version** - Update your file, the link stays the same
-- 🚀 **No authentication required** - Share with anyone, anywhere, anytime
+- 🚀 **Use public links to share** - With anyone, anywhere, anytime
 - 📱 **Direct file access** - Links work in browsers, apps, embedding, etc.
 - 🔄 **Instant updates** - Change the distributed version and all links update automatically
 - 🛡️ **Secure and stable** - Links remain active until you disable them
 
-Think of it as your own private file CDN with version control. Perfect for documentation, assets, PDFs, images, or any file you need to share with consistent URLs.
+Think of it as your own private file CDN with version control. Perfect for documentation, assets, PDFs, images, AI project artifacts, or any file you need to share with consistent URLs.
 
 ## 🚀 Deployment Options
 
