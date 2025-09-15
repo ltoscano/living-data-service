@@ -37,7 +37,7 @@ const Modal = ({ show, type, title, message, publicUrl, onConfirm, onClose }) =>
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[9999]">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[99999]">
       <div className={`bg-white rounded-xl shadow-xl p-6 ${type === 'document-created' ? 'max-w-lg w-full' : 'max-w-md w-full'}`}>
         <div className="flex items-center gap-3 mb-4">
           {getIcon()}

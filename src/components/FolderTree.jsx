@@ -24,18 +24,23 @@ const FolderTree = ({
   onDeleteFolder,
   onShowFolderLinks,
   showConfirm,
-  level = 0 
+  level = 0,
+  expandedFolders,
+  setExpandedFolders
 }) => {
-  const [expandedFolders, setExpandedFolders] = useState(new Set());
+  // Use local state only if expandedFolders is not provided (root level)
+  const [localExpandedFolders, setLocalExpandedFolders] = useState(new Set());
+  const currentExpandedFolders = expandedFolders || localExpandedFolders;
+  const currentSetExpandedFolders = setExpandedFolders || setLocalExpandedFolders;
 
   const toggleFolder = (folderId) => {
-    const newExpanded = new Set(expandedFolders);
+    const newExpanded = new Set(currentExpandedFolders);
     if (newExpanded.has(folderId)) {
       newExpanded.delete(folderId);
     } else {
       newExpanded.add(folderId);
     }
-    setExpandedFolders(newExpanded);
+    currentSetExpandedFolders(newExpanded);
   };
 
   // Funzione ricorsiva per raccogliere tutti i file di un folder
@@ -63,7 +68,7 @@ const FolderTree = ({
   };
 
   const renderItem = (item) => {
-    const isExpanded = expandedFolders.has(item.id);
+    const isExpanded = currentExpandedFolders.has(item.id);
     const paddingLeft = level * 20;
 
     if (item.type === 'folder') {
@@ -120,6 +125,8 @@ const FolderTree = ({
                 onShowFolderLinks={onShowFolderLinks}
                 showConfirm={showConfirm}
                 level={level + 1}
+                expandedFolders={currentExpandedFolders}
+                setExpandedFolders={currentSetExpandedFolders}
               />
             </div>
           )}

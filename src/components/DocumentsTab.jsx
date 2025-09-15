@@ -35,7 +35,7 @@ const DocumentsTab = ({
   onShowFolderLinks,
   showConfirm
 }) => {
-  const [viewType, setViewType] = useState('list'); // 'list' or 'tree'
+  const [viewType, setViewType] = useState('tree'); // 'list' or 'tree'
   
   const getSortIconComponent = (field) => {
     if (sortBy !== field) {
