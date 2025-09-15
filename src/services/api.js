@@ -50,6 +50,17 @@ export const documentsApi = {
     throw new Error('Failed to create document');
   },
 
+  createFolder: async (formData) => {
+    const response = await fetch('/api/create-folder', {
+      method: 'POST',
+      body: formData
+    });
+    if (response.ok) {
+      return await response.json();
+    }
+    throw new Error('Failed to create folder');
+  },
+
   update: async (docId, formData) => {
     const response = await fetch(`/api/update-document/${docId}`, {
       method: 'POST',
@@ -103,6 +114,47 @@ export const documentsApi = {
 
   downloadVersion: (docId, version) => {
     window.open(`/api/download/${docId}/version/${version}`, '_blank');
+  }
+};
+
+// Folders API
+export const foldersApi = {
+  getTree: async () => {
+    const response = await fetch('/api/folders/tree');
+    if (response.ok) {
+      return await response.json();
+    }
+    throw new Error('Failed to load folder tree');
+  },
+
+  getContents: async (folderId) => {
+    const response = await fetch(`/api/folders/${folderId}/contents`);
+    if (response.ok) {
+      return await response.json();
+    }
+    throw new Error('Failed to load folder contents');
+  },
+
+  create: async (formData) => {
+    const response = await fetch('/api/create-folder', {
+      method: 'POST',
+      body: formData
+    });
+    if (response.ok) {
+      return await response.json();
+    }
+    throw new Error('Failed to create folder');
+  },
+
+  delete: async (folderId) => {
+    const response = await fetch(`/api/folders/${folderId}`, {
+      method: 'DELETE'
+    });
+    if (response.ok) {
+      return true;
+    }
+    const data = await response.json();
+    throw new Error(data.error || 'Failed to delete folder');
   }
 };
 

@@ -6,6 +6,7 @@ import UsersTab from './UsersTab';
 const ManageSection = ({ 
   user, 
   filteredAndSortedDocuments,
+  folderTree,
   searchTerm,
   setSearchTerm,
   sortBy,
@@ -14,11 +15,13 @@ const ManageSection = ({
   getSortIcon,
   onUpdateDocument,
   onDeleteDocument,
+  onDeleteFolder,
   onSetCurrentVersion,
   onToggleAvailability,
   onOpenUpdateModal,
   onOpenLinkModal,
   onOpenUserModal,
+  onShowFolderLinks,
   showConfirm
 }) => {
   const [manageSubTab, setManageSubTab] = useState('documents');
@@ -64,6 +67,7 @@ const ManageSection = ({
       {manageSubTab === 'documents' && (
         <DocumentsTab
           filteredAndSortedDocuments={filteredAndSortedDocuments}
+          folderTree={folderTree}
           searchTerm={searchTerm}
           setSearchTerm={setSearchTerm}
           sortBy={sortBy}
@@ -72,10 +76,12 @@ const ManageSection = ({
           getSortIcon={getSortIcon}
           onUpdateDocument={onUpdateDocument}
           onDeleteDocument={onDeleteDocument}
+          onDeleteFolder={onDeleteFolder}
           onSetCurrentVersion={onSetCurrentVersion}
           onToggleAvailability={onToggleAvailability}
           onOpenUpdateModal={onOpenUpdateModal}
           onOpenLinkModal={onOpenLinkModal}
+          onShowFolderLinks={onShowFolderLinks}
           showConfirm={showConfirm}
         />
       )}

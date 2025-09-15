@@ -41,6 +41,16 @@ async function initDatabase() {
       isActive BOOLEAN DEFAULT TRUE
     );
     
+    CREATE TABLE IF NOT EXISTS folders (
+      id TEXT PRIMARY KEY,
+      userId INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      parentId TEXT,
+      created DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (userId) REFERENCES users (id) ON DELETE CASCADE,
+      FOREIGN KEY (parentId) REFERENCES folders (id) ON DELETE CASCADE
+    );
+    
     CREATE TABLE IF NOT EXISTS documents (
       id TEXT PRIMARY KEY,
       userId INTEGER NOT NULL,
@@ -54,7 +64,10 @@ async function initDatabase() {
       activeViewers INTEGER DEFAULT 0,
       filePath TEXT NOT NULL,
       available BOOLEAN DEFAULT TRUE,
-      FOREIGN KEY (userId) REFERENCES users (id) ON DELETE CASCADE
+      folderId TEXT,
+      relativePath TEXT,
+      FOREIGN KEY (userId) REFERENCES users (id) ON DELETE CASCADE,
+      FOREIGN KEY (folderId) REFERENCES folders (id) ON DELETE CASCADE
     );
     
     CREATE TABLE IF NOT EXISTS versions (
@@ -68,7 +81,10 @@ async function initDatabase() {
     );
     
     CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+    CREATE INDEX IF NOT EXISTS idx_folders_user ON folders(userId);
+    CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(parentId);
     CREATE INDEX IF NOT EXISTS idx_documents_user ON documents(userId);
+    CREATE INDEX IF NOT EXISTS idx_documents_folder ON documents(folderId);
     CREATE INDEX IF NOT EXISTS idx_documents_token ON documents(accessToken);
     CREATE INDEX IF NOT EXISTS idx_versions_doc ON versions(documentId);
     CREATE INDEX IF NOT EXISTS idx_versions_created ON versions(created);
@@ -377,6 +393,159 @@ app.post('/api/create-living-pdf', requireAuth, upload.single('pdf'), async (req
     
   } catch (error) {
     console.error('Error creating living PDF:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ENDPOINT: Crea Folder con file
+app.post('/api/create-folder', requireAuth, upload.array('files'), async (req, res) => {
+  try {
+    const { folderName, filePaths } = req.body;
+    const files = req.files;
+    
+    if (!folderName || !files || files.length === 0) {
+      return res.status(400).json({ error: 'Folder name and files required' });
+    }
+    
+    // Genera ID univoco per la folder principale
+    const rootFolderId = crypto.randomBytes(16).toString('hex');
+    
+    // Salva folder principale nel database
+    db.prepare(`
+      INSERT INTO folders (id, userId, name, created)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(rootFolderId, req.user.id, folderName);
+    
+    // Mappa per tenere traccia delle folder create (path -> folderId)
+    const folderMap = new Map();
+    folderMap.set('', rootFolderId); // Root folder
+    
+    // Funzione per creare folder se non esiste
+    function ensureFolderExists(folderPath, parentId = rootFolderId) {
+      if (folderMap.has(folderPath)) {
+        return folderMap.get(folderPath);
+      }
+      
+      const folderName = path.basename(folderPath);
+      const folderId = crypto.randomBytes(16).toString('hex');
+      
+      db.prepare(`
+        INSERT INTO folders (id, userId, name, parentId, created)
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `).run(folderId, req.user.id, folderName, parentId);
+      
+      folderMap.set(folderPath, folderId);
+      return folderId;
+    }
+    
+    // Elabora tutti i file
+    const createdDocuments = [];
+    const filePathsArray = Array.isArray(filePaths) ? filePaths : [filePaths];
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const relativePath = filePathsArray[i] || file.originalname;
+      
+      try {
+        // Estrae directory e file name dal percorso relativo
+        const fileDirPath = path.dirname(relativePath);
+        const fileName = path.basename(relativePath);
+        
+        // Crea tutte le folder necessarie nel percorso
+        let currentFolderId = rootFolderId;
+        
+        if (fileDirPath && fileDirPath !== '.' && fileDirPath !== folderName) {
+          // Rimuove il nome della folder principale dal percorso se presente
+          const cleanPath = fileDirPath.startsWith(folderName + '/') 
+            ? fileDirPath.substring(folderName.length + 1)
+            : fileDirPath;
+            
+          if (cleanPath) {
+            const pathParts = cleanPath.split('/').filter(part => part && part !== '.');
+            let currentPath = '';
+            
+            for (const part of pathParts) {
+              const parentPath = currentPath;
+              currentPath = currentPath ? `${currentPath}/${part}` : part;
+              
+              const parentFolderId = parentPath ? folderMap.get(parentPath) || rootFolderId : rootFolderId;
+              currentFolderId = ensureFolderExists(currentPath, parentFolderId);
+            }
+          }
+        }
+        
+        // Genera ID univoco per ogni documento
+        const documentId = crypto.randomBytes(16).toString('hex');
+        const accessToken = crypto.randomBytes(24).toString('hex');
+        const currentVersion = '1.0';
+        
+        const fileExtension = path.extname(fileName);
+        const outputPath = `living-pdfs/${documentId}-v${currentVersion}${fileExtension}`;
+        
+        // Gestisce diversi tipi di file
+        if (file.mimetype === 'application/pdf') {
+          try {
+            const pdfBytes = await fs.readFile(file.path);
+            const pdfDoc = await PDFDocument.load(pdfBytes);
+            
+            const form = pdfDoc.getForm();
+            const versionField = form.createTextField('__version');
+            versionField.setText(currentVersion);
+            
+            const docIdField = form.createTextField('__docId');
+            docIdField.setText(documentId);
+            
+            const livingPdfBytes = await pdfDoc.save();
+            await fs.writeFile(outputPath, livingPdfBytes);
+          } catch (error) {
+            console.warn('Could not modify PDF, copying original:', error.message);
+            const originalBytes = await fs.readFile(file.path);
+            await fs.writeFile(outputPath, originalBytes);
+          }
+        } else {
+          const originalBytes = await fs.readFile(file.path);
+          await fs.writeFile(outputPath, originalBytes);
+        }
+        
+        // Salva documento nel database con la folder corretta
+        db.prepare(`
+          INSERT INTO documents (id, userId, name, accessToken, currentVersion, filePath, folderId, relativePath, created, lastUpdate)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `).run(documentId, req.user.id, fileName, accessToken, currentVersion, outputPath, currentFolderId, relativePath);
+        
+        // Salva versione
+        db.prepare(`
+          INSERT INTO versions (documentId, version, filePath, created)
+          VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        `).run(documentId, currentVersion, outputPath);
+        
+        createdDocuments.push({
+          documentId,
+          fileName,
+          relativePath,
+          folderId: currentFolderId,
+          publicUrl: `/api/public/${accessToken}`
+        });
+        
+        // Cleanup file temporaneo
+        await fs.unlink(file.path);
+        
+      } catch (error) {
+        console.error(`Error processing file ${relativePath}:`, error);
+      }
+    }
+    
+    res.json({
+      success: true,
+      folderId: rootFolderId,
+      folderName: folderName,
+      foldersCreated: folderMap.size,
+      documentsCreated: createdDocuments.length,
+      documents: createdDocuments
+    });
+    
+  } catch (error) {
+    console.error('Error creating folder:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1297,6 +1466,135 @@ function generateUpdateScript(documentId, currentVersion, updateFrequency = 'man
     }
   `;
 }
+
+// ENDPOINT: Ottieni albero delle folder
+app.get('/api/folders/tree', requireAuth, (req, res) => {
+  try {
+    // Funzione ricorsiva per costruire l'albero
+    function buildFolderTree(parentId = null) {
+      const folders = db.prepare(`
+        SELECT * FROM folders 
+        WHERE userId = ? AND ${parentId ? 'parentId = ?' : 'parentId IS NULL'}
+        ORDER BY name
+      `).all(parentId ? [req.user.id, parentId] : [req.user.id]);
+      
+      const documents = db.prepare(`
+        SELECT d.*, 
+               (SELECT GROUP_CONCAT(v.version ORDER BY v.created DESC) FROM versions v WHERE v.documentId = d.id) as versions
+        FROM documents d 
+        WHERE d.userId = ? AND ${parentId ? 'd.folderId = ?' : 'd.folderId IS NULL'}
+        ORDER BY d.name
+      `).all(parentId ? [req.user.id, parentId] : [req.user.id]);
+      
+      const result = [];
+      
+      // Aggiungi folder
+      for (const folder of folders) {
+        const children = buildFolderTree(folder.id);
+        result.push({
+          id: folder.id,
+          type: 'folder',
+          name: folder.name,
+          created: folder.created,
+          children: children
+        });
+      }
+      
+      // Aggiungi documenti
+      for (const doc of documents) {
+        const versions = doc.versions ? doc.versions.split(',') : [doc.currentVersion];
+        result.push({
+          id: doc.id,
+          type: 'file',
+          name: doc.name,
+          version: doc.currentVersion,
+          versions: versions,
+          created: doc.created,
+          lastUpdate: doc.lastUpdate,
+          downloads: doc.downloads,
+          available: doc.available,
+          status: 'active',
+          publicUrl: `/api/public/${doc.accessToken}`,
+          relativePath: doc.relativePath
+        });
+      }
+      
+      return result;
+    }
+    
+    const tree = buildFolderTree();
+    res.json(tree);
+    
+  } catch (error) {
+    console.error('Error getting folder tree:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ENDPOINT: Elimina folder
+app.delete('/api/folders/:folderId', requireAuth, async (req, res) => {
+  try {
+    const { folderId } = req.params;
+    
+    // Verifica che la folder esista e appartenga all'utente
+    const folder = db.prepare('SELECT * FROM folders WHERE id = ? AND userId = ?').get(folderId, req.user.id);
+    if (!folder) {
+      return res.status(404).json({ error: 'Folder not found' });
+    }
+    
+    // Funzione ricorsiva per eliminare folder e contenuti
+    async function deleteFolderRecursive(folderId) {
+      // Ottieni sottofolder
+      const subfolders = db.prepare('SELECT id FROM folders WHERE parentId = ?').all(folderId);
+      
+      // Elimina ricorsivamente le sottofolder
+      for (const subfolder of subfolders) {
+        await deleteFolderRecursive(subfolder.id);
+      }
+      
+      // Ottieni documenti nella folder
+      const documents = db.prepare('SELECT * FROM documents WHERE folderId = ?').all(folderId);
+      
+      // Elimina documenti e i loro file
+      for (const doc of documents) {
+        // Elimina file fisici di tutte le versioni
+        const versions = db.prepare('SELECT filePath FROM versions WHERE documentId = ?').all(doc.id);
+        for (const version of versions) {
+          try {
+            await fs.unlink(version.filePath).catch(() => {});
+          } catch (error) {
+            console.warn(`Could not delete file ${version.filePath}:`, error.message);
+          }
+        }
+        
+        // Elimina file corrente
+        try {
+          await fs.unlink(doc.filePath).catch(() => {});
+        } catch (error) {
+          console.warn(`Could not delete current file ${doc.filePath}:`, error.message);
+        }
+        
+        // Elimina da database
+        db.prepare('DELETE FROM versions WHERE documentId = ?').run(doc.id);
+        db.prepare('DELETE FROM documents WHERE id = ?').run(doc.id);
+      }
+      
+      // Elimina la folder dal database
+      db.prepare('DELETE FROM folders WHERE id = ?').run(folderId);
+    }
+    
+    await deleteFolderRecursive(folderId);
+    
+    res.json({
+      success: true,
+      message: 'Folder deleted successfully'
+    });
+    
+  } catch (error) {
+    console.error('Error deleting folder:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // Serve React app per tutte le route non-API (catch-all route)
 app.get('*', (req, res) => {

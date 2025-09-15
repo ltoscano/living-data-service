@@ -12,6 +12,7 @@ import TabButton from './components/shared/TabButton';
 import UploadSection from './components/UploadSection';
 import ManageSection from './components/ManageSection';
 import AnalyticsSection from './components/AnalyticsSection';
+import FolderLinksModal from './components/FolderLinksModal';
 import { UserModal, UpdateModal, LinkModal } from './components/modals';
 
 // Services
@@ -36,14 +37,17 @@ const LivingDataService = () => {
   
   const {
     filteredAndSortedDocuments,
+    folderTree,
     searchTerm,
     setSearchTerm,
     sortBy,
     sortOrder,
     handleSort,
     createDocument,
+    createFolder,
     updateDocument,
     deleteDocument,
+    deleteFolder,
     setCurrentVersion,
     toggleAvailability,
     loadDocuments
@@ -59,8 +63,10 @@ const LivingDataService = () => {
   // Document modals states
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
+  const [showFolderLinksModal, setShowFolderLinksModal] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState(null);
   const [updateFile, setUpdateFile] = useState(null);
+  const [folderLinksData, setFolderLinksData] = useState({ folderName: '', files: [] });
 
   // Login state
   const [showLogin, setShowLogin] = useState(false);
@@ -149,6 +155,15 @@ const LivingDataService = () => {
     }
   };
 
+  const handleCreateFolder = async (formData) => {
+    try {
+      const result = await createFolder(formData);
+      return result;
+    } catch (error) {
+      throw error;
+    }
+  };
+
   const handleUpdateDocument = async () => {
     if (!updateFile) {
       showError('Please select a file for the new version');
@@ -198,6 +213,15 @@ const LivingDataService = () => {
     }
   };
 
+  const handleDeleteFolder = async (folderId) => {
+    try {
+      await deleteFolder(folderId);
+      showSuccess('Folder deleted successfully!');
+    } catch (error) {
+      showError('Error deleting folder');
+    }
+  };
+
   const handleCopyPublicLink = async (publicUrl) => {
     const result = await copyPublicLink(publicUrl);
     if (result.success) {
@@ -238,6 +262,16 @@ const LivingDataService = () => {
   const closeLinkModal = () => {
     setShowLinkModal(false);
     setSelectedDocument(null);
+  };
+
+  const showFolderLinks = (folderName, files) => {
+    setFolderLinksData({ folderName, files });
+    setShowFolderLinksModal(true);
+  };
+
+  const closeFolderLinksModal = () => {
+    setShowFolderLinksModal(false);
+    setFolderLinksData({ folderName: '', files: [] });
   };
 
   const getSortIcon = (field) => {
@@ -414,7 +448,9 @@ const LivingDataService = () => {
             {activeTab === 'upload' && (
               <UploadSection
                 onCreateDocument={handleCreateDocument}
+                onCreateFolder={handleCreateFolder}
                 showDocumentCreated={showDocumentCreated}
+                showSuccess={showSuccess}
                 showError={showError}
               />
             )}
@@ -423,6 +459,7 @@ const LivingDataService = () => {
               <ManageSection
                 user={user}
                 filteredAndSortedDocuments={filteredAndSortedDocuments}
+                folderTree={folderTree}
                 searchTerm={searchTerm}
                 setSearchTerm={setSearchTerm}
                 sortBy={sortBy}
@@ -431,11 +468,13 @@ const LivingDataService = () => {
                 getSortIcon={getSortIcon}
                 onUpdateDocument={handleUpdateDocument}
                 onDeleteDocument={handleDeleteDocument}
+                onDeleteFolder={handleDeleteFolder}
                 onSetCurrentVersion={handleSetCurrentVersion}
                 onToggleAvailability={handleToggleAvailability}
                 onOpenUpdateModal={openUpdateModal}
                 onOpenLinkModal={openLinkModal}
                 onOpenUserModal={openUserModal}
+                onShowFolderLinks={showFolderLinks}
                 showConfirm={showConfirm}
               />
             )}
@@ -489,6 +528,15 @@ const LivingDataService = () => {
         selectedDocument={selectedDocument}
         onClose={closeLinkModal}
         onCopyPublicLink={handleCopyPublicLink}
+      />
+      
+      {/* Folder Links Modal */}
+      <FolderLinksModal
+        show={showFolderLinksModal}
+        folderName={folderLinksData.folderName}
+        files={folderLinksData.files}
+        onClose={closeFolderLinksModal}
+        showSuccess={showSuccess}
       />
     </div>
   );

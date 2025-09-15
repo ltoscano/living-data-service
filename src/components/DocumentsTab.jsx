@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Search, 
   FileText, 
@@ -10,12 +10,16 @@ import {
   Info,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  List,
+  TreePine
 } from 'lucide-react';
 import { documentsApi } from '../services/api';
+import FolderTree from './FolderTree';
 
 const DocumentsTab = ({ 
   filteredAndSortedDocuments,
+  folderTree,
   searchTerm,
   setSearchTerm,
   sortBy,
@@ -27,8 +31,11 @@ const DocumentsTab = ({
   onOpenUpdateModal,
   onOpenLinkModal,
   onDeleteDocument,
+  onDeleteFolder,
+  onShowFolderLinks,
   showConfirm
 }) => {
+  const [viewType, setViewType] = useState('list'); // 'list' or 'tree'
   
   const getSortIconComponent = (field) => {
     if (sortBy !== field) {
@@ -44,6 +51,14 @@ const DocumentsTab = ({
       'Delete Document',
       `Are you sure you want to delete "${docName}"?\n\nThis will permanently delete the document and all its versions. This action cannot be undone.`,
       () => onDeleteDocument(docId)
+    );
+  };
+
+  const handleDeleteFolder = (folderId, folderName) => {
+    showConfirm(
+      'Delete Folder',
+      `Are you sure you want to delete folder "${folderName}"?\n\nThis will permanently delete the folder and all its contents. This action cannot be undone.`,
+      () => onDeleteFolder(folderId)
     );
   };
 
@@ -66,39 +81,94 @@ const DocumentsTab = ({
           </p>
         )}
       </div>
-      
+
+      {/* View Type Selector */}
       <div className="mb-4 flex justify-center gap-2">
         <button
-          onClick={() => handleSort('title')}
+          onClick={() => setViewType('list')}
           className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${
-            sortBy === 'title' 
+            viewType === 'list' 
               ? 'bg-blue-50 border-blue-200 text-blue-700' 
               : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
           }`}
-          title={`Sort by title ${sortBy === 'title' ? (sortOrder === 'asc' ? '(A-Z)' : '(Z-A)') : ''}`}
+          title="List view"
         >
-          <FileText size={16} />
-          Title
-          {getSortIconComponent('title')}
+          <List size={16} />
+          List View
         </button>
         
         <button
-          onClick={() => handleSort('created')}
+          onClick={() => setViewType('tree')}
           className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${
-            sortBy === 'created' 
+            viewType === 'tree' 
               ? 'bg-blue-50 border-blue-200 text-blue-700' 
               : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
           }`}
-          title={`Sort by creation date ${sortBy === 'created' ? (sortOrder === 'asc' ? '(oldest first)' : '(newest first)') : ''}`}
+          title="Tree view (folders and files)"
         >
-          <Clock size={16} />
-          Date Created
-          {getSortIconComponent('created')}
+          <TreePine size={16} />
+          Tree View
         </button>
       </div>
       
-      <div className="max-h-96 overflow-y-auto space-y-4 border rounded-lg p-4" style={{ backgroundColor: '#fbf7f1' }}>
-        {filteredAndSortedDocuments.length > 0 ? filteredAndSortedDocuments.map((doc) => (
+      {/* Sorting Controls - Only show in list view */}
+      {viewType === 'list' && (
+        <div className="mb-4 flex justify-center gap-2">
+          <button
+            onClick={() => handleSort('title')}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${
+              sortBy === 'title' 
+                ? 'bg-blue-50 border-blue-200 text-blue-700' 
+                : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+            title={`Sort by title ${sortBy === 'title' ? (sortOrder === 'asc' ? '(A-Z)' : '(Z-A)') : ''}`}
+          >
+            <FileText size={16} />
+            Title
+            {getSortIconComponent('title')}
+          </button>
+          
+          <button
+            onClick={() => handleSort('created')}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${
+              sortBy === 'created' 
+                ? 'bg-blue-50 border-blue-200 text-blue-700' 
+                : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+            title={`Sort by creation date ${sortBy === 'created' ? (sortOrder === 'asc' ? '(oldest first)' : '(newest first)') : ''}`}
+          >
+            <Clock size={16} />
+            Date Created
+            {getSortIconComponent('created')}
+          </button>
+        </div>
+      )}
+      
+      <div className="max-h-96 overflow-y-auto border rounded-lg p-4" style={{ backgroundColor: '#fbf7f1' }}>
+        {viewType === 'tree' ? (
+          // Tree view
+          folderTree && folderTree.length > 0 ? (
+            <FolderTree
+              items={folderTree}
+              onSetCurrentVersion={onSetCurrentVersion}
+              onToggleAvailability={onToggleAvailability}
+              onOpenUpdateModal={onOpenUpdateModal}
+              onOpenLinkModal={onOpenLinkModal}
+              onDeleteDocument={handleDeleteDocument}
+              onDeleteFolder={handleDeleteFolder}
+              onShowFolderLinks={onShowFolderLinks}
+              showConfirm={showConfirm}
+            />
+          ) : (
+            <div className="text-center py-8">
+              <TreePine size={48} className="mx-auto text-gray-400 mb-4" />
+              <p className="text-gray-600">No folders or documents uploaded yet</p>
+            </div>
+          )
+        ) : (
+          // List view
+          <div className="space-y-4">
+            {filteredAndSortedDocuments.length > 0 ? filteredAndSortedDocuments.map((doc) => (
           <div key={doc.id} className="rounded-lg p-4" style={{ backgroundColor: '#fbf7f1' }}>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-4">
@@ -218,6 +288,8 @@ const DocumentsTab = ({
                 : 'No documents uploaded yet'
               }
             </p>
+          </div>
+        )}
           </div>
         )}
       </div>

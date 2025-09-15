@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { documentsApi } from '../services/api';
+import { documentsApi, foldersApi } from '../services/api';
 
 export const useDocuments = (isAuthenticated) => {
   const [documents, setDocuments] = useState([]);
+  const [folderTree, setFolderTree] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('created');
   const [sortOrder, setSortOrder] = useState('desc');
@@ -16,32 +17,59 @@ export const useDocuments = (isAuthenticated) => {
     }
   };
 
+  const loadFolderTree = async () => {
+    try {
+      const tree = await foldersApi.getTree();
+      setFolderTree(tree);
+    } catch (error) {
+      console.error('Error loading folder tree:', error);
+    }
+  };
+
   const createDocument = async (formData) => {
     const result = await documentsApi.create(formData);
     await loadDocuments();
+    await loadFolderTree();
+    return result;
+  };
+
+  const createFolder = async (formData) => {
+    const result = await foldersApi.create(formData);
+    await loadDocuments();
+    await loadFolderTree();
     return result;
   };
 
   const updateDocument = async (docId, formData) => {
     const result = await documentsApi.update(docId, formData);
     await loadDocuments();
+    await loadFolderTree();
     return result;
   };
 
   const deleteDocument = async (docId) => {
     await documentsApi.delete(docId);
     await loadDocuments();
+    await loadFolderTree();
+  };
+
+  const deleteFolder = async (folderId) => {
+    await foldersApi.delete(folderId);
+    await loadDocuments();
+    await loadFolderTree();
   };
 
   const setCurrentVersion = async (docId, version) => {
     const result = await documentsApi.setCurrentVersion(docId, version);
     await loadDocuments();
+    await loadFolderTree();
     return result;
   };
 
   const toggleAvailability = async (docId, available) => {
     const result = await documentsApi.toggleAvailability(docId, available);
     await loadDocuments();
+    await loadFolderTree();
     return result;
   };
 
@@ -71,11 +99,13 @@ export const useDocuments = (isAuthenticated) => {
   useEffect(() => {
     if (isAuthenticated) {
       loadDocuments();
+      loadFolderTree();
     }
   }, [isAuthenticated]);
 
   return {
     documents,
+    folderTree,
     filteredAndSortedDocuments,
     searchTerm,
     setSearchTerm,
@@ -83,10 +113,13 @@ export const useDocuments = (isAuthenticated) => {
     sortOrder,
     handleSort,
     createDocument,
+    createFolder,
     updateDocument,
     deleteDocument,
+    deleteFolder,
     setCurrentVersion,
     toggleAvailability,
-    loadDocuments
+    loadDocuments,
+    loadFolderTree
   };
 };
