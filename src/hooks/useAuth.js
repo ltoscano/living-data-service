@@ -5,19 +5,16 @@ export const useAuth = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [authMethod, setAuthMethod] = useState(null);
-  const [keycloakEnabled, setKeycloakEnabled] = useState(false);
 
   const checkAuthStatus = async () => {
     try {
       const data = await authApi.checkStatus();
-      
-      setKeycloakEnabled(data.keycloakEnabled || false);
-      setAuthMethod(data.authMethod);
+      console.log('🔐 Auth status response:', data);
       
       if (data.authenticated) {
         setIsAuthenticated(true);
         setUser(data.user);
+        console.log('🔐 User set in useAuth:', data.user);
       } else {
         setIsAuthenticated(false);
         setUser(null);
@@ -47,24 +44,20 @@ export const useAuth = () => {
     }
   };
 
-  const logout = async () => {
+  const logout = async (authMethod = 'local') => {
     try {
-      if (keycloakEnabled && authMethod === 'keycloak') {
-        // Redirect to Keycloak logout
-        window.location.href = '/auth/keycloak/logout';
-      } else {
-        // Local logout
-        await authApi.logout();
+      await authApi.logout(authMethod);
+      if (authMethod === 'local') {
         setIsAuthenticated(false);
         setUser(null);
       }
+      // Per Keycloak, il redirect è gestito dall'API
     } catch (error) {
       console.error('Logout error:', error);
+      // Forza logout locale in caso di errore
+      setIsAuthenticated(false);
+      setUser(null);
     }
-  };
-
-  const loginWithKeycloak = () => {
-    window.location.href = '/auth/keycloak/login';
   };
 
   const changePassword = async (passwordData) => {
@@ -92,11 +85,8 @@ export const useAuth = () => {
     isAuthenticated,
     user,
     isLoading,
-    authMethod,
-    keycloakEnabled,
     login,
     logout,
-    loginWithKeycloak,
     changePassword
   };
 };

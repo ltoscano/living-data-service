@@ -20,7 +20,6 @@ const VERSION = '0.80'; // Version of Living Data Service - easily modifiable
 const DB_PATH = process.env.DB_PATH || './data/documents.db';
 const RETENTION_DAYS = parseInt(process.env.RETENTION_DAYS) || 30;
 const CLEANUP_INTERVAL = parseInt(process.env.CLEANUP_INTERVAL_MINUTES) || 5;
-const SUPERUSER_NAME = process.env.SUPERUSER_NAME || 'admincdn';
 
 // Setup database SQLite
 let db;
@@ -40,7 +39,8 @@ async function initDatabase() {
       email TEXT,
       created DATETIME DEFAULT CURRENT_TIMESTAMP,
       lastLogin DATETIME,
-      isActive BOOLEAN DEFAULT TRUE
+      isActive BOOLEAN DEFAULT TRUE,
+      isAdmin BOOLEAN DEFAULT FALSE
     );
     
     CREATE TABLE IF NOT EXISTS folders (
@@ -94,6 +94,16 @@ async function initDatabase() {
   
   console.log('📊 Database SQLite inizializzato:', DB_PATH);
   
+  // Migrazione: aggiungi campo isAdmin se non esiste
+  try {
+    db.exec('ALTER TABLE users ADD COLUMN isAdmin BOOLEAN DEFAULT FALSE');
+    console.log('✅ Migrazione: Campo isAdmin aggiunto alla tabella users');
+  } catch (error) {
+    if (!error.message.includes('duplicate column name')) {
+      console.error('❌ Errore migrazione:', error.message);
+    }
+  }
+  
   // Crea superuser se non esiste
   await createSuperUserIfNotExists();
 }
@@ -101,30 +111,24 @@ async function initDatabase() {
 // Crea superuser se non esiste
 async function createSuperUserIfNotExists() {
   try {
+    const superUserName = process.env.SUPERUSER_NAME || 'admin';
     const superUserPass = process.env.SUPERUSER_PASSWD || 'admin123';
     
-    // Se SUPERUSER_NAME non è 'admin', rimuovi il vecchio utente 'admin' (se esiste)
-    if (SUPERUSER_NAME !== 'admin') {
-      const oldAdmin = db.prepare('SELECT * FROM users WHERE username = ?').get('admin');
-      if (oldAdmin) {
-        db.prepare('DELETE FROM users WHERE username = ?').run('admin');
-        console.log(`👤 Vecchio utente 'admin' rimosso`);
-      }
-    }
-    
-    const existingUser = db.prepare('SELECT * FROM users WHERE username = ?').get(SUPERUSER_NAME);
+    const existingUser = db.prepare('SELECT * FROM users WHERE username = ?').get(superUserName);
     
     if (!existingUser) {
       const hashedPassword = await bcrypt.hash(superUserPass, 10);
       
       db.prepare(`
-        INSERT INTO users (username, password, email, created)
-        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-      `).run(SUPERUSER_NAME, hashedPassword, 'admin@livingdata.local');
+        INSERT INTO users (username, password, email, created, isAdmin)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP, TRUE)
+      `).run(superUserName, hashedPassword, 'admin@livingdata.local');
       
-      console.log(`👤 Superuser '${SUPERUSER_NAME}' creato con successo`);
+      console.log(`👤 Superuser '${superUserName}' creato con successo`);
     } else {
-      console.log(`👤 Superuser '${SUPERUSER_NAME}' già esistente`);
+      // Assicuriamoci che il superuser esistente abbia isAdmin=true
+      db.prepare('UPDATE users SET isAdmin = TRUE WHERE username = ?').run(superUserName);
+      console.log(`👤 Superuser '${superUserName}' già esistente - aggiornato isAdmin=true`);
     }
   } catch (error) {
     console.error('Errore creazione superuser:', error);
@@ -135,31 +139,80 @@ async function createSuperUserIfNotExists() {
 function requireAuth(req, res, next) {
   const keycloakAuth = req.app.locals.keycloakAuth;
   
-  if (keycloakAuth && keycloakAuth.isEnabled()) {
-    return keycloakAuth.requireAuth(req, res, next);
+  // Se Keycloak è abilitato, richiedi ENTRAMBE le autenticazioni
+  if (keycloakAuth && keycloakAuth.enabled) {
+    console.log('🔐 RequireAuth Dual Auth check:');
+    console.log('  - keycloakAuthenticated:', !!req.session?.keycloakAuthenticated);
+    console.log('  - session.userId:', req.session?.userId);
+    console.log('  - req.user exists:', !!req.user);
+    
+    // Verifica che ENTRAMBE le autenticazioni siano completate
+    const isKeycloakAuth = req.session && req.session.keycloakAuthenticated;
+    const isLocalAuth = req.session && req.session.userId && req.user;
+    
+    if (isKeycloakAuth && isLocalAuth) {
+      console.log('🔐 Dual authentication successful');
+      return next();
+    }
+    
+    if (!isKeycloakAuth) {
+      console.log('🔐 Keycloak authentication missing');
+    }
+    if (!isLocalAuth) {
+      console.log('🔐 Local authentication missing');
+    }
+    
+    return res.status(401).json({ error: 'Dual authentication required (Keycloak + Local)' });
   }
   
-  // Sistema di autenticazione locale
+  // Altrimenti usa solo l'autenticazione locale
   if (!req.session || !req.session.userId) {
     return res.status(401).json({ error: 'Authentication required' });
   }
+  
+  // Verifica che req.user sia impostato dal middleware getCurrentUser
+  if (!req.user || !req.user.id) {
+    return res.status(401).json({ error: 'User not found in session' });
+  }
+  
   next();
 }
 
-// Middleware per ottenere l'utente corrente (supporta sia Keycloak che auth locale)
+// Middleware per ottenere l'utente corrente
 function getCurrentUser(req, res, next) {
   const keycloakAuth = req.app.locals.keycloakAuth;
   
-  // Se Keycloak è abilitato e l'utente è autenticato via Keycloak
-  if (keycloakAuth && keycloakAuth.isEnabled() && req.isAuthenticated && req.isAuthenticated()) {
-    // L'utente è già disponibile in req.user tramite Passport
-    return next();
-  }
-  
-  // Sistema di autenticazione locale
-  if (req.session && req.session.userId) {
-    const user = db.prepare('SELECT id, username, email FROM users WHERE id = ?').get(req.session.userId);
-    req.user = user;
+  // Se Keycloak è abilitato
+  if (keycloakAuth && keycloakAuth.enabled) {
+    // Prima prova con Passport (req.user già impostato)
+    if (req.isAuthenticated && req.isAuthenticated() && req.user) {
+      // req.user è già impostato da Passport
+      if (!req.user.id && req.user.userId) {
+        req.user.id = req.user.userId;
+      }
+      req.user.authMethod = 'keycloak';
+    } 
+    // Fallback: usa la sessione se Passport non ha funzionato
+    else if (req.session && req.session.userId) {
+      const user = db.prepare('SELECT id, username, email, isAdmin FROM users WHERE id = ?').get(req.session.userId);
+      if (user) {
+        req.user = {
+          ...user,
+          authMethod: 'keycloak',
+          isAdmin: !!user.isAdmin
+        };
+      }
+    }
+  } else if (req.session && req.session.userId) {
+    // Autenticazione locale
+    const user = db.prepare('SELECT id, username, email, isAdmin FROM users WHERE id = ?').get(req.session.userId);
+    if (user) {
+      req.user = {
+        ...user,
+        authMethod: 'local',
+        isAdmin: !!user.isAdmin
+      };
+    }
   }
   next();
 }
@@ -221,7 +274,7 @@ function startCleanupScheduler() {
 app.use(session({
   secret: process.env.JWT_SECRET || 'default-secret-key',
   resave: false,
-  saveUninitialized: true, // Cambiato da false a true per salvare sessioni anche se vuote
+  saveUninitialized: false,
   cookie: { 
     secure: process.env.SECURE_COOKIES === 'true', // Use HTTPS only if explicitly enabled
     httpOnly: true,
@@ -229,13 +282,10 @@ app.use(session({
   }
 }));
 
-app.use(express.json());
-
-// Inizializza Keycloak Auth (se abilitato)
-const keycloakAuth = new KeycloakAuth(app);
-app.locals.keycloakAuth = keycloakAuth;
-
+// Middleware per ottenere l'utente corrente (deve essere dopo session ma prima delle route API)
 app.use(getCurrentUser);
+
+app.use(express.json());
 
 // ENDPOINT: Login
 app.post('/api/login', async (req, res) => {
@@ -267,16 +317,13 @@ app.post('/api/login', async (req, res) => {
     req.session.userId = user.id;
     req.session.username = user.username;
     
-    console.log('🔍 DEBUG Login success - setting session userId:', user.id);
-    console.log('🔍 DEBUG Login success - session after set:', req.session);
-    
     res.json({
       success: true,
       user: {
         id: user.id,
         username: user.username,
         email: user.email,
-        isSuperuser: user.username === SUPERUSER_NAME
+        isAdmin: !!user.isAdmin
       }
     });
   } catch (error) {
@@ -295,78 +342,72 @@ app.post('/api/logout', (req, res) => {
   });
 });
 
-// ENDPOINT: Check auth status (supporta approccio ibrido)
+// ENDPOINT: Get auth configuration
+app.get('/api/auth/config', (req, res) => {
+  const keycloakAuth = req.app.locals.keycloakAuth;
+  res.json({
+    keycloakEnabled: !!(keycloakAuth && keycloakAuth.enabled),
+    keycloakLogoutUrl: keycloakAuth?.enabled ? '/auth/keycloak/logout' : null
+  });
+});
+
+// ENDPOINT: Check auth status
 app.get('/api/auth/status', (req, res) => {
   const keycloakAuth = req.app.locals.keycloakAuth;
   
-  console.log('🔍 DEBUG /api/auth/status - SUPERUSER_NAME:', SUPERUSER_NAME);
-  console.log('🔍 DEBUG Keycloak enabled:', keycloakAuth && keycloakAuth.isEnabled());
-  console.log('🔍 DEBUG Request cookies:', req.headers.cookie);
-  console.log('🔍 DEBUG Session ID:', req.sessionID);
-  
-  if (keycloakAuth && keycloakAuth.isEnabled()) {
-    // Se Keycloak è abilitato, controlla prima Keycloak
-    if (req.isAuthenticated && req.isAuthenticated()) {
-      return res.json({
-        authenticated: true,
-        user: {
-          id: req.user.id,
-          username: req.user.username,
-          email: req.user.email,
-          name: req.user.name,
-          roles: req.user.roles,
-          isSuperuser: req.user.username === SUPERUSER_NAME
-        },
-        authMethod: 'keycloak',
-        keycloakEnabled: true
-      });
+  // Se Keycloak è abilitato, verifica doppia autenticazione
+  if (keycloakAuth && keycloakAuth.enabled) {
+    console.log('🔐 Auth Status Check:');
+    console.log('  - keycloakAuthenticated:', !!req.session?.keycloakAuthenticated);
+    console.log('  - session.userId:', req.session?.userId);
+    console.log('  - keycloakUser:', !!req.session?.keycloakUser);
+    
+    const isKeycloakAuth = req.session && req.session.keycloakAuthenticated;
+    const isLocalAuth = req.session && req.session.userId;
+    
+    // Se entrambe le autenticazioni sono completate
+    if (isKeycloakAuth && isLocalAuth) {
+      const user = db.prepare('SELECT id, username, email, isAdmin FROM users WHERE id = ?').get(req.session.userId);
+      if (user) {
+        console.log('🔐 Returning authenticated response with keycloak method');
+        res.json({ 
+          authenticated: true, 
+          user: {
+            ...user,
+            isAdmin: !!user.isAdmin,
+            authMethod: 'keycloak'
+          },
+          keycloakUser: req.session.keycloakUser,
+          keycloakAuthenticated: true
+        });
+        return;
+      }
     }
     
-    // Fallback: controlla autenticazione locale (account applicativi)
+    // Stato parziale dell'autenticazione
+    console.log('🔐 Returning partial authentication state');
+    res.json({ 
+      authenticated: false, 
+      authMethod: 'keycloak',
+      keycloakAuthenticated: !!isKeycloakAuth,
+      localAuthenticated: !!isLocalAuth,
+      keycloakUser: req.session.keycloakUser || null
+    });
+  } else {
+    // Autenticazione locale semplice
     if (req.session && req.session.userId) {
-      const user = db.prepare('SELECT id, username, email FROM users WHERE id = ?').get(req.session.userId);
-      console.log('🔍 DEBUG User from DB:', user);
-      console.log('🔍 DEBUG isSuperuser check:', user.username, '===', SUPERUSER_NAME, '=', user.username === SUPERUSER_NAME);
-      return res.json({ 
+      const user = db.prepare('SELECT id, username, email, isAdmin FROM users WHERE id = ?').get(req.session.userId);
+      res.json({ 
         authenticated: true, 
         user: {
           ...user,
-          isSuperuser: user.username === SUPERUSER_NAME
-        },
-        authMethod: 'local',
-        keycloakEnabled: true
+          isAdmin: !!user.isAdmin,
+          authMethod: 'local'
+        }
       });
+    } else {
+      res.json({ authenticated: false, authMethod: 'local' });
     }
-    
-    return res.json({ 
-      authenticated: false, 
-      authMethod: null,
-      keycloakEnabled: true
-    });
-  }
-  
-  // Sistema di autenticazione locale (Keycloak disabilitato)
-  console.log('🔍 DEBUG Session exists:', !!req.session);
-  console.log('🔍 DEBUG Session userId:', req.session?.userId);
-  if (req.session && req.session.userId) {
-    const user = db.prepare('SELECT id, username, email FROM users WHERE id = ?').get(req.session.userId);
-    console.log('🔍 DEBUG User from DB (no Keycloak):', user);
-    console.log('🔍 DEBUG isSuperuser check (no Keycloak):', user.username, '===', SUPERUSER_NAME, '=', user.username === SUPERUSER_NAME);
-    res.json({ 
-      authenticated: true, 
-      user: {
-        ...user,
-        isSuperuser: user.username === SUPERUSER_NAME
-      },
-      authMethod: 'local',
-      keycloakEnabled: false
-    });
-  } else {
-    res.json({ 
-      authenticated: false,
-      authMethod: null,
-      keycloakEnabled: false
-    });
   }
 });
 
@@ -487,7 +528,7 @@ app.post('/api/create-living-pdf', requireAuth, upload.single('pdf'), async (req
       documentId: documentId,
       version: currentVersion,
       downloadUrl: `/api/download/${documentId}`,
-      publicUrl: `/api/public/${accessToken}`, // Link pubblico sempre aggiornato
+      publicUrl: `/public/${accessToken}`, // Link pubblico sempre aggiornato
       accessToken: accessToken
     });
     
@@ -624,7 +665,7 @@ app.post('/api/create-folder', requireAuth, upload.array('files'), async (req, r
           fileName,
           relativePath,
           folderId: currentFolderId,
-          publicUrl: `/api/public/${accessToken}`
+          publicUrl: `/public/${accessToken}`
         });
         
         // Cleanup file temporaneo
@@ -688,7 +729,7 @@ app.get('/api/check-update/:documentId', async (req, res) => {
 });
 
 // ENDPOINT: Download pubblico tramite token (sempre ultima versione)
-app.get('/api/public/:accessToken', async (req, res) => {
+app.get('/public/:accessToken', async (req, res) => {
   try {
     const { accessToken } = req.params;
     
@@ -954,7 +995,7 @@ app.get('/api/documents', requireAuth, (req, res) => {
       activeViewers: doc.activeViewers,
       updateFrequency: doc.updateFrequency,
       accessToken: doc.accessToken,
-      publicUrl: `/api/public/${doc.accessToken}`,
+      publicUrl: `/public/${doc.accessToken}`,
       versions: doc.allVersions ? doc.allVersions.split(',') : [doc.currentVersion],
       available: !!doc.available
     }));
@@ -1118,25 +1159,38 @@ app.get('/api/config', requireAuth, (req, res) => {
   }
 });
 
+// ENDPOINT: Get auth configuration (pubblico)
+app.get('/api/auth/config', (req, res) => {
+  res.json({
+    keycloakEnabled: process.env.ENABLE_KEYCLOAK === 'true',
+    keycloakLoginUrl: process.env.ENABLE_KEYCLOAK === 'true' ? '/auth/keycloak' : null,
+    keycloakLogoutUrl: process.env.ENABLE_KEYCLOAK === 'true' ? '/auth/keycloak/logout' : null
+  });
+});
+
 // ENDPOINT: Get users (admin only)
 app.get('/api/users', requireAuth, (req, res) => {
   try {
-    if (req.user.username !== SUPERUSER_NAME) {
+    // Controlla se l'utente corrente è admin
+    const currentUser = db.prepare('SELECT isAdmin FROM users WHERE id = ?').get(req.user.id);
+    if (!currentUser.isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
     const users = db.prepare(`
-      SELECT id, username, email, created, lastLogin, isActive 
+      SELECT id, username, email, created, lastLogin, isActive, isAdmin 
       FROM users 
       ORDER BY created DESC
     `).all();
 
-    const usersWithSuperuserFlag = users.map(user => ({
+    // Trasforma isAdmin e isActive in booleani
+    const formattedUsers = users.map(user => ({
       ...user,
-      isSuperuser: user.username === SUPERUSER_NAME
+      isAdmin: !!user.isAdmin,
+      isActive: !!user.isActive
     }));
 
-    res.json(usersWithSuperuserFlag);
+    res.json(formattedUsers);
   } catch (error) {
     console.error('Error getting users:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -1146,7 +1200,9 @@ app.get('/api/users', requireAuth, (req, res) => {
 // ENDPOINT: Create user (admin only)
 app.post('/api/users', requireAuth, async (req, res) => {
   try {
-    if (req.user.username !== SUPERUSER_NAME) {
+    // Controlla se l'utente corrente è admin
+    const currentUser = db.prepare('SELECT isAdmin FROM users WHERE id = ?').get(req.user.id);
+    if (!currentUser.isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -1185,12 +1241,14 @@ app.post('/api/users', requireAuth, async (req, res) => {
 // ENDPOINT: Update user (admin only)
 app.put('/api/users/:userId', requireAuth, async (req, res) => {
   try {
-    if (req.user.username !== SUPERUSER_NAME) {
+    // Controlla se l'utente corrente è admin
+    const currentUser = db.prepare('SELECT isAdmin FROM users WHERE id = ?').get(req.user.id);
+    if (!currentUser.isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
     const { userId } = req.params;
-    const { username, password, email } = req.body;
+    const { username, password, email, isAdmin } = req.body;
 
     if (!username) {
       return res.status(400).json({ error: 'Username required' });
@@ -1208,20 +1266,26 @@ app.put('/api/users/:userId', requireAuth, async (req, res) => {
       return res.status(409).json({ error: 'Username already exists' });
     }
 
+    // Proteggi il superuser dalla modifica dello status admin
+    const isSuperuser = user.username === process.env.SUPERUSER_NAME;
+    if (isSuperuser && isAdmin === false) {
+      return res.status(403).json({ error: 'Cannot remove admin status from superuser' });
+    }
+
     // Update user
     if (password) {
       const hashedPassword = await bcrypt.hash(password, 10);
       db.prepare(`
         UPDATE users 
-        SET username = ?, password = ?, email = ? 
+        SET username = ?, password = ?, email = ?, isAdmin = ? 
         WHERE id = ?
-      `).run(username, hashedPassword, email || null, userId);
+      `).run(username, hashedPassword, email || null, isAdmin ? 1 : 0, userId);
     } else {
       db.prepare(`
         UPDATE users 
-        SET username = ?, email = ? 
+        SET username = ?, email = ?, isAdmin = ? 
         WHERE id = ?
-      `).run(username, email || null, userId);
+      `).run(username, email || null, isAdmin ? 1 : 0, userId);
     }
 
     res.json({
@@ -1234,10 +1298,49 @@ app.put('/api/users/:userId', requireAuth, async (req, res) => {
   }
 });
 
+// ENDPOINT: Toggle admin status
+app.patch('/api/users/:userId/admin', requireAuth, (req, res) => {
+  try {
+    // Controlla se l'utente corrente è admin
+    const currentUser = db.prepare('SELECT isAdmin FROM users WHERE id = ?').get(req.user.id);
+    if (!currentUser.isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { userId } = req.params;
+    const { isAdmin } = req.body;
+
+    // Check if user exists
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Proteggi il superuser dalla modifica dello status admin
+    const isSuperuser = user.username === process.env.SUPERUSER_NAME;
+    if (isSuperuser && isAdmin === false) {
+      return res.status(403).json({ error: 'Cannot remove admin status from superuser' });
+    }
+
+    // Update admin status
+    db.prepare('UPDATE users SET isAdmin = ? WHERE id = ?').run(isAdmin ? 1 : 0, userId);
+
+    res.json({
+      success: true,
+      message: `User ${isAdmin ? 'promoted to' : 'removed from'} admin successfully`
+    });
+  } catch (error) {
+    console.error('Error updating user admin status:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ENDPOINT: Delete user (admin only)
 app.delete('/api/users/:userId', requireAuth, (req, res) => {
   try {
-    if (req.user.username !== SUPERUSER_NAME) {
+    // Controlla se l'utente corrente è admin
+    const currentUser = db.prepare('SELECT isAdmin FROM users WHERE id = ?').get(req.user.id);
+    if (!currentUser.isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -1249,8 +1352,8 @@ app.delete('/api/users/:userId', requireAuth, (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Prevent deleting admin user
-    if (user.username === SUPERUSER_NAME) {
+    // Prevent deleting admin users
+    if (user.isAdmin) {
       return res.status(403).json({ error: 'Cannot delete admin user' });
     }
 
@@ -1619,7 +1722,7 @@ app.get('/api/folders/tree', requireAuth, (req, res) => {
           downloads: doc.downloads,
           available: doc.available,
           status: 'active',
-          publicUrl: `/api/public/${doc.accessToken}`,
+          publicUrl: `/public/${doc.accessToken}`,
           relativePath: doc.relativePath
         });
       }
@@ -1701,22 +1804,6 @@ app.delete('/api/folders/:folderId', requireAuth, async (req, res) => {
   }
 });
 
-// Middleware per gestire autenticazione Keycloak su routes non-API
-app.get('*', (req, res) => {
-  if (!req.path.startsWith('/api')) {
-    const keycloakAuth = req.app.locals.keycloakAuth;
-    
-    // Se Keycloak è abilitato e utente non è autenticato, redirect a Keycloak
-    if (keycloakAuth && keycloakAuth.isEnabled() && !req.user) {
-      // Escludi callback e error routes dal redirect automatico
-      if (!req.path.includes('/auth/callback') && !req.query.error) {
-        return res.redirect('/auth/keycloak/login');
-      }
-    }
-    
-    res.sendFile(path.join(__dirname, '../public/src/index.html'));
-  }
-});
 
 // Avvia server
 const PORT = process.env.PORT || 3000;
@@ -1725,6 +1812,39 @@ async function startServer() {
   try {
     // Inizializza database
     await initDatabase();
+    
+    // Inizializza Keycloak se abilitato
+    if (process.env.ENABLE_KEYCLOAK === 'true') {
+      const keycloakAuth = new KeycloakAuth(app, db);
+      app.locals.keycloakAuth = keycloakAuth;
+    }
+    
+    // getCurrentUser middleware è già registrato globalmente
+    
+    // Serve React app per tutte le route non-API (catch-all route)
+    app.get('*', (req, res) => {
+      const keycloakAuth = req.app.locals.keycloakAuth;
+      
+      // Escludi le route di autenticazione, API e assets dal redirect automatico
+      if (req.path.startsWith('/auth/') || 
+          req.path.startsWith('/api/') || 
+          req.path.startsWith('/assets/') ||
+          req.path.startsWith('/health') ||
+          req.path.includes('.')) {
+        return res.sendFile(path.join(__dirname, '../public/src/index.html'));
+      }
+      
+      // Se Keycloak è abilitato e l'utente non è autenticato, reindirizza
+      if (keycloakAuth && keycloakAuth.enabled) {
+        if (!req.isAuthenticated || !req.isAuthenticated()) {
+          console.log(`🔐 Auto-redirecting unauthenticated user from ${req.originalUrl} to Keycloak`);
+          req.session.returnTo = req.originalUrl;
+          return res.redirect('/auth/keycloak');
+        }
+      }
+      
+      res.sendFile(path.join(__dirname, '../public/src/index.html'));
+    });
     
     // Avvia cleanup scheduler
     startCleanupScheduler();

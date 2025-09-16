@@ -5,6 +5,11 @@ export const authApi = {
     return await response.json();
   },
 
+  getConfig: async () => {
+    const response = await fetch('/api/auth/config');
+    return await response.json();
+  },
+
   login: async (credentials) => {
     const response = await fetch('/api/login', {
       method: 'POST',
@@ -14,8 +19,17 @@ export const authApi = {
     return { response, data: await response.json() };
   },
 
-  logout: async () => {
+  logout: async (authMethod = 'local') => {
+    if (authMethod === 'keycloak') {
+      // Per Keycloak, reindirizza direttamente
+      window.location.href = '/auth/keycloak/logout';
+      return;
+    }
     return await fetch('/api/logout', { method: 'POST' });
+  },
+
+  keycloakLogin: () => {
+    window.location.href = '/auth/keycloak';
   },
 
   changePassword: async (passwordData) => {
@@ -203,6 +217,19 @@ export const usersApi = {
     }
     const data = await response.json();
     throw new Error(data.error || 'Failed to delete user');
+  },
+
+  toggleAdmin: async (userId, isAdmin) => {
+    const response = await fetch(`/api/users/${userId}/admin`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isAdmin })
+    });
+    const data = await response.json();
+    if (response.ok) {
+      return data;
+    }
+    throw new Error(data.error || 'Failed to update admin status');
   }
 };
 
