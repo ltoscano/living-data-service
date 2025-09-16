@@ -8,6 +8,9 @@
 
 Perfect for teams, developers, and organizations who need professional document management without the complexity.
 
+Updates:
+[09-16-2025] Added Keycloak support
+
 ## 🌐 Public Links as CDN
 
 **Living Data Service transforms your documents into a personal CDN.** Every uploaded file gets a permanent public link that:
@@ -253,15 +256,6 @@ After deployment, visit your service URL and:
 npm run build:frontend  # Build React app
 ```
 
-## API Access
-
-The service provides a full REST API:
-- `POST /api/create-living-pdf` - Upload document
-- `GET /api/documents` - List user documents  
-- `GET /api/public/:token` - Public document access
-- `DELETE /api/documents/:id` - Delete document
-- Full user management endpoints for admin users
-
 ## Security Features
 
 - Session-based authentication with secure cookies
@@ -269,19 +263,6 @@ The service provides a full REST API:
 - User isolation (each user sees only their documents)
 - CSRF protection and input validation
 - Configurable retention policies for automatic cleanup
-
-## File Structure
-
-```
-living-data-service/
-├── src/
-│   ├── server.js           # Express server
-│   ├── LivingPDFService.jsx # React frontend
-│   └── ...
-├── docker-compose.yml      # Easy Docker setup
-├── Dockerfile             # Container definition
-└── migrate-db.js          # Database setup
-```
 
 ## Important Security Notes
 
