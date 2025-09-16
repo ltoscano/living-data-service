@@ -159,15 +159,15 @@ const FolderTree = ({
               <div className="flex items-center gap-2">
                 <span className="text-xs text-gray-600">Available:</span>
                 <button
-                  onClick={() => onToggleAvailability(item.id, item.available !== false)}
-                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                    item.available !== false ? 'bg-green-600' : 'bg-gray-300'
+                  onClick={() => onToggleAvailability(item.id, !!item.available)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                    !!item.available ? 'bg-green-600' : 'bg-gray-300'
                   }`}
-                  title={`Document is ${item.available !== false ? 'available' : 'unavailable'} - click to toggle`}
+                  title={`Document is ${!!item.available ? 'available' : 'unavailable'} - click to toggle`}
                 >
                   <span
-                    className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
-                      item.available !== false ? 'translate-x-5' : 'translate-x-1'
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      !!item.available ? 'translate-x-6' : 'translate-x-1'
                     }`}
                   />
                 </button>
