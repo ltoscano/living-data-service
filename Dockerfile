@@ -1,6 +1,6 @@
 FROM node:20-alpine
 
-# Install dependencies for pdf processing, health checks, and native module compilation
+# Install dependencies for pdf processing, health checks, native module compilation, and Keycloak
 RUN apk add --no-cache \
     cairo \
     pango \
@@ -10,7 +10,9 @@ RUN apk add --no-cache \
     curl \
     python3 \
     make \
-    g++
+    g++ \
+    openssl \
+    ca-certificates
 
 # Create app directory
 WORKDIR /app
@@ -18,23 +20,29 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install ALL dependencies (including dev dependencies for building frontend)
-RUN npm ci
+# Install production dependencies first
+RUN npm ci --only=production
+
+# Install dev dependencies for building
+RUN npm ci --only=development
 
 # Copy application code
 COPY . .
 
-# Build frontend
+# Build frontend (requires dev dependencies)
 RUN npm run build:frontend
 
-# Remove dev dependencies to keep image small
+# Clean up dev dependencies to keep image small
 RUN npm prune --omit=dev
 
+# Clear npm cache
+RUN npm cache clean --force
+
 # Rebuild native modules for the container architecture
-RUN npm rebuild better-sqlite3
+RUN npm rebuild better-sqlite3 sqlite3
 
 # Create required directories
-RUN mkdir -p /app/data /app/uploads /app/living-pdfs
+RUN mkdir -p /app/data /app/uploads /app/living-pdfs /app/public
 
 # Set permissions
 RUN chown -R node:node /app

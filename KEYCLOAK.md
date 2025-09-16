@@ -1,19 +1,19 @@
-# Keycloak Integration
+nole# Keycloak Integration
 
-Questa documentazione spiega come configurare l'integrazione con Keycloak per Living Data Service.
+This documentation explains how to configure Keycloak integration for Living Data Service.
 
-## Architettura Ibrida
+## Hybrid Architecture
 
-L'applicazione supporta un approccio **ibrido** di autenticazione:
+The application supports a **hybrid** authentication approach:
 
-1. **Keycloak Authentication**: Per l'accesso principale dell'utente
-2. **Application Accounts**: Account locali gestiti dall'applicazione (creazione, modifica, cambio password)
+1. **Keycloak Authentication**: For primary user access
+2. **Application Accounts**: Local accounts managed by the application (creation, editing, password changes)
 
-## Configurazione
+## Configuration
 
-### 1. Variabili di Ambiente
+### 1. Environment Variables
 
-Aggiorna il file `.env` con le seguenti configurazioni:
+Update the `.env` file with the following configurations:
 
 ```env
 # Keycloak Configuration (optional - if enabled, replaces local auth)
@@ -26,63 +26,63 @@ REDIRECT_URI=http://localhost:3000/auth/callback
 SESSION_SECRET=your-session-secret-key-here
 ```
 
-### 2. Setup Keycloak
+### 2. Keycloak Setup
 
-1. **Crea un nuovo Realm** chiamato `living-data-service`
-2. **Crea un nuovo Client**:
+1. **Create a new Realm** called `living-data-service`
+2. **Create a new Client**:
    - Client ID: `living-data-service-client`
    - Client Protocol: `openid-connect`
    - Access Type: `confidential`
    - Valid Redirect URIs: `http://localhost:3000/auth/callback`
    - Web Origins: `http://localhost:3000`
 
-3. **Configura Client Credentials**:
-   - Vai nella tab "Credentials" del client
-   - Copia il "Secret" e usalo come `CLIENT_SECRET`
+3. **Configure Client Credentials**:
+   - Go to the client's "Credentials" tab
+   - Copy the "Secret" and use it as `CLIENT_SECRET`
 
-4. **Crea Ruoli** (opzionale):
-   - `admin`: per amministratori
-   - `user`: per utenti normali
+4. **Create Roles** (optional):
+   - `admin`: for administrators
+   - `user`: for regular users
 
-### 3. Avvio dell'Applicazione
+### 3. Application Startup
 
 ```bash
-# Con Keycloak abilitato
+# With Keycloak enabled
 ENABLE_KEYCLOAK=true npm start
 
-# Con solo autenticazione locale
+# With local authentication only
 ENABLE_KEYCLOAK=false npm start
 ```
 
-## Funzionalità
+## Features
 
 ### Login Screen
 
-Quando Keycloak è abilitato, l'utente vede:
+When Keycloak is enabled, users see:
 
-1. **Pulsante "Sign in with Keycloak"**: Redirect a Keycloak per l'autenticazione
-2. **Form "Application Account"**: Login con account applicativi locali
+1. **"Sign in with Keycloak" Button**: Redirects to Keycloak for authentication
+2. **"Application Account" Form**: Login with local application accounts
 
 ### User Management
 
-- **Keycloak Users**: Gestiti da Keycloak (non modificabili dall'app)
-- **Application Users**: Gestiti localmente (creazione, modifica, cambio password)
+- **Keycloak Users**: Managed by Keycloak (not modifiable from the app)
+- **Application Users**: Managed locally (creation, editing, password changes)
 
 ### Logout
 
-- **Keycloak Users**: Logout completo da Keycloak
-- **Application Users**: Logout locale
+- **Keycloak Users**: Complete logout from Keycloak
+- **Application Users**: Local logout
 
-## Endpoint API
+## API Endpoints
 
-### Autenticazione
+### Authentication
 
-- `GET /api/auth/status`: Controlla lo stato di autenticazione
-- `GET /auth/keycloak/login`: Inizia il flusso di login Keycloak
-- `GET /auth/keycloak/logout`: Logout da Keycloak
-- `GET /auth/callback`: Callback URL per Keycloak
+- `GET /api/auth/status`: Check authentication status
+- `GET /auth/keycloak/login`: Start Keycloak login flow
+- `GET /auth/keycloak/logout`: Logout from Keycloak
+- `GET /auth/callback`: Callback URL for Keycloak
 
-### Risposta Auth Status
+### Auth Status Response
 
 ```json
 {
@@ -91,38 +91,38 @@ Quando Keycloak è abilitato, l'utente vede:
     "id": "user-id",
     "username": "username",
     "email": "user@example.com",
-    "name": "User Name", // solo per Keycloak
-    "roles": ["admin"] // solo per Keycloak
+    "name": "User Name", // Keycloak only
+    "roles": ["admin"] // Keycloak only
   },
-  "authMethod": "keycloak", // o "local"
+  "authMethod": "keycloak", // or "local"
   "keycloakEnabled": true
 }
 ```
 
-## Sicurezza
+## Security
 
-- I token Keycloak sono gestiti da Passport.js
-- Le sessioni utilizzano `express-session`
-- Il `SESSION_SECRET` deve essere una stringa sicura e casuale
-- In produzione, usa HTTPS per tutti i collegamenti
+- Keycloak tokens are managed by Passport.js
+- Sessions use `express-session`
+- `SESSION_SECRET` must be a secure and random string
+- In production, use HTTPS for all connections
 
 ## Troubleshooting
 
-### Errore "Client not found"
-- Verifica che il `CLIENT_ID` sia corretto
-- Controlla che il client sia abilitato in Keycloak
+### "Client not found" Error
+- Verify that `CLIENT_ID` is correct
+- Check that the client is enabled in Keycloak
 
-### Errore "Invalid redirect_uri"
-- Verifica che il `REDIRECT_URI` sia configurato correttamente nel client Keycloak
-- Assicurati che l'URL sia identico (incluso http/https)
+### "Invalid redirect_uri" Error
+- Verify that `REDIRECT_URI` is configured correctly in the Keycloak client
+- Ensure the URL is identical (including http/https)
 
-### Errore "Unauthorized"
-- Controlla che il `CLIENT_SECRET` sia corretto
-- Verifica che l'Access Type del client sia "confidential"
+### "Unauthorized" Error
+- Check that `CLIENT_SECRET` is correct
+- Verify that the client's Access Type is "confidential"
 
-## Dipendenze
+## Dependencies
 
-Le seguenti dipendenze NPM sono necessarie per Keycloak:
+The following NPM dependencies are required for Keycloak:
 
 ```json
 {
@@ -132,7 +132,7 @@ Le seguenti dipendenze NPM sono necessarie per Keycloak:
 }
 ```
 
-Installa con:
+Install with:
 ```bash
 npm install passport passport-openidconnect express-session
 ```

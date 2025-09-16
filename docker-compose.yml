@@ -9,12 +9,6 @@ services:
       - ./data:/app/data
       - ./uploads:/app/uploads
       - ./living-pdfs:/app/living-pdfs
-    environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - DB_PATH=/app/data/documents.db
-      - SUPERUSER_NAME=admin
-      - SUPERUSER_PASSWD=admin123
-      - JWT_SECRET=change-this-in-production
-      - SECURE_COOKIES=false
+    env_file:
+      - .env
     restart: unless-stopped
