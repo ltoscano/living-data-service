@@ -10,6 +10,7 @@ const fs = require('fs').promises;
 const crypto = require('crypto');
 const path = require('path');
 const Database = require('better-sqlite3');
+const KeycloakAuth = require('./keycloak-integration');
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
@@ -121,16 +122,32 @@ async function createSuperUserIfNotExists() {
   }
 }
 
-// Middleware di autenticazione
+// Middleware di autenticazione (supporta sia Keycloak che auth locale)
 function requireAuth(req, res, next) {
+  const keycloakAuth = req.app.locals.keycloakAuth;
+  
+  if (keycloakAuth && keycloakAuth.isEnabled()) {
+    return keycloakAuth.requireAuth(req, res, next);
+  }
+  
+  // Sistema di autenticazione locale
   if (!req.session || !req.session.userId) {
     return res.status(401).json({ error: 'Authentication required' });
   }
   next();
 }
 
-// Middleware per ottenere l'utente corrente
+// Middleware per ottenere l'utente corrente (supporta sia Keycloak che auth locale)
 function getCurrentUser(req, res, next) {
+  const keycloakAuth = req.app.locals.keycloakAuth;
+  
+  // Se Keycloak è abilitato e l'utente è autenticato via Keycloak
+  if (keycloakAuth && keycloakAuth.isEnabled() && req.isAuthenticated && req.isAuthenticated()) {
+    // L'utente è già disponibile in req.user tramite Passport
+    return next();
+  }
+  
+  // Sistema di autenticazione locale
   if (req.session && req.session.userId) {
     const user = db.prepare('SELECT id, username, email FROM users WHERE id = ?').get(req.session.userId);
     req.user = user;
@@ -204,6 +221,11 @@ app.use(session({
 }));
 
 app.use(express.json());
+
+// Inizializza Keycloak Auth (se abilitato)
+const keycloakAuth = new KeycloakAuth(app);
+app.locals.keycloakAuth = keycloakAuth;
+
 app.use(getCurrentUser);
 
 // ENDPOINT: Login
@@ -260,13 +282,60 @@ app.post('/api/logout', (req, res) => {
   });
 });
 
-// ENDPOINT: Check auth status
+// ENDPOINT: Check auth status (supporta approccio ibrido)
 app.get('/api/auth/status', (req, res) => {
+  const keycloakAuth = req.app.locals.keycloakAuth;
+  
+  if (keycloakAuth && keycloakAuth.isEnabled()) {
+    // Se Keycloak è abilitato, controlla prima Keycloak
+    if (req.isAuthenticated && req.isAuthenticated()) {
+      return res.json({
+        authenticated: true,
+        user: {
+          id: req.user.id,
+          username: req.user.username,
+          email: req.user.email,
+          name: req.user.name,
+          roles: req.user.roles
+        },
+        authMethod: 'keycloak',
+        keycloakEnabled: true
+      });
+    }
+    
+    // Fallback: controlla autenticazione locale (account applicativi)
+    if (req.session && req.session.userId) {
+      const user = db.prepare('SELECT id, username, email FROM users WHERE id = ?').get(req.session.userId);
+      return res.json({ 
+        authenticated: true, 
+        user,
+        authMethod: 'local',
+        keycloakEnabled: true // Keycloak è disponibile ma si è autenticati localmente
+      });
+    }
+    
+    return res.json({ 
+      authenticated: false, 
+      authMethod: null,
+      keycloakEnabled: true
+    });
+  }
+  
+  // Sistema di autenticazione locale (Keycloak disabilitato)
   if (req.session && req.session.userId) {
     const user = db.prepare('SELECT id, username, email FROM users WHERE id = ?').get(req.session.userId);
-    res.json({ authenticated: true, user });
+    res.json({ 
+      authenticated: true, 
+      user,
+      authMethod: 'local',
+      keycloakEnabled: false
+    });
   } else {
-    res.json({ authenticated: false });
+    res.json({ 
+      authenticated: false,
+      authMethod: null,
+      keycloakEnabled: false
+    });
   }
 });
 
