@@ -310,7 +310,7 @@ app.get('/api/auth/status', (req, res) => {
         authenticated: true, 
         user,
         authMethod: 'local',
-        keycloakEnabled: true // Keycloak è disponibile ma si è autenticati localmente
+        keycloakEnabled: true
       });
     }
     
@@ -1665,9 +1665,19 @@ app.delete('/api/folders/:folderId', requireAuth, async (req, res) => {
   }
 });
 
-// Serve React app per tutte le route non-API (catch-all route)
+// Middleware per gestire autenticazione Keycloak su routes non-API
 app.get('*', (req, res) => {
   if (!req.path.startsWith('/api')) {
+    const keycloakAuth = req.app.locals.keycloakAuth;
+    
+    // Se Keycloak è abilitato e utente non è autenticato, redirect a Keycloak
+    if (keycloakAuth && keycloakAuth.isEnabled() && !req.user) {
+      // Escludi callback e error routes dal redirect automatico
+      if (!req.path.includes('/auth/callback') && !req.query.error) {
+        return res.redirect('/auth/keycloak/login');
+      }
+    }
+    
     res.sendFile(path.join(__dirname, '../public/src/index.html'));
   }
 });
