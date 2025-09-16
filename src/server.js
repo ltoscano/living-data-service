@@ -20,6 +20,7 @@ const VERSION = '0.80'; // Version of Living Data Service - easily modifiable
 const DB_PATH = process.env.DB_PATH || './data/documents.db';
 const RETENTION_DAYS = parseInt(process.env.RETENTION_DAYS) || 30;
 const CLEANUP_INTERVAL = parseInt(process.env.CLEANUP_INTERVAL_MINUTES) || 5;
+const SUPERUSER_NAME = process.env.SUPERUSER_NAME || 'admin';
 
 // Setup database SQLite
 let db;
@@ -100,10 +101,18 @@ async function initDatabase() {
 // Crea superuser se non esiste
 async function createSuperUserIfNotExists() {
   try {
-    const superUserName = process.env.SUPERUSER_NAME || 'admin';
     const superUserPass = process.env.SUPERUSER_PASSWD || 'admin123';
     
-    const existingUser = db.prepare('SELECT * FROM users WHERE username = ?').get(superUserName);
+    // Se SUPERUSER_NAME non è 'admin', rimuovi il vecchio utente 'admin' (se esiste)
+    if (SUPERUSER_NAME !== 'admin') {
+      const oldAdmin = db.prepare('SELECT * FROM users WHERE username = ?').get('admin');
+      if (oldAdmin) {
+        db.prepare('DELETE FROM users WHERE username = ?').run('admin');
+        console.log(`👤 Vecchio utente 'admin' rimosso`);
+      }
+    }
+    
+    const existingUser = db.prepare('SELECT * FROM users WHERE username = ?').get(SUPERUSER_NAME);
     
     if (!existingUser) {
       const hashedPassword = await bcrypt.hash(superUserPass, 10);
@@ -111,11 +120,11 @@ async function createSuperUserIfNotExists() {
       db.prepare(`
         INSERT INTO users (username, password, email, created)
         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-      `).run(superUserName, hashedPassword, 'admin@livingdata.local');
+      `).run(SUPERUSER_NAME, hashedPassword, 'admin@livingdata.local');
       
-      console.log(`👤 Superuser '${superUserName}' creato con successo`);
+      console.log(`👤 Superuser '${SUPERUSER_NAME}' creato con successo`);
     } else {
-      console.log(`👤 Superuser '${superUserName}' già esistente`);
+      console.log(`👤 Superuser '${SUPERUSER_NAME}' già esistente`);
     }
   } catch (error) {
     console.error('Errore creazione superuser:', error);
@@ -1090,7 +1099,7 @@ app.get('/api/config', requireAuth, (req, res) => {
 // ENDPOINT: Get users (admin only)
 app.get('/api/users', requireAuth, (req, res) => {
   try {
-    if (req.user.username !== 'admin') {
+    if (req.user.username !== SUPERUSER_NAME) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -1110,7 +1119,7 @@ app.get('/api/users', requireAuth, (req, res) => {
 // ENDPOINT: Create user (admin only)
 app.post('/api/users', requireAuth, async (req, res) => {
   try {
-    if (req.user.username !== 'admin') {
+    if (req.user.username !== SUPERUSER_NAME) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -1149,7 +1158,7 @@ app.post('/api/users', requireAuth, async (req, res) => {
 // ENDPOINT: Update user (admin only)
 app.put('/api/users/:userId', requireAuth, async (req, res) => {
   try {
-    if (req.user.username !== 'admin') {
+    if (req.user.username !== SUPERUSER_NAME) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -1201,7 +1210,7 @@ app.put('/api/users/:userId', requireAuth, async (req, res) => {
 // ENDPOINT: Delete user (admin only)
 app.delete('/api/users/:userId', requireAuth, (req, res) => {
   try {
-    if (req.user.username !== 'admin') {
+    if (req.user.username !== SUPERUSER_NAME) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -1214,7 +1223,7 @@ app.delete('/api/users/:userId', requireAuth, (req, res) => {
     }
 
     // Prevent deleting admin user
-    if (user.username === 'admin') {
+    if (user.username === SUPERUSER_NAME) {
       return res.status(403).json({ error: 'Cannot delete admin user' });
     }
 
