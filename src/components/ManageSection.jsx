@@ -25,6 +25,11 @@ const ManageSection = ({
   showConfirm
 }) => {
   const [manageSubTab, setManageSubTab] = useState('documents');
+  
+  // Debug: log user object to console
+  console.log('🔍 ManageSection user:', user);
+  console.log('🔍 ManageSection user.isSuperuser:', user?.isSuperuser);
+  console.log('🔍 Should show users tab?', user && user.isSuperuser);
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -42,7 +47,7 @@ const ManageSection = ({
           <FileText size={18} />
           Data
         </button>
-        {user && user.username === 'admin' && (
+        {user && user.isSuperuser && (
           <button
             onClick={() => setManageSubTab('users')}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
@@ -86,7 +91,7 @@ const ManageSection = ({
         />
       )}
       
-      {manageSubTab === 'users' && user && user.username === 'admin' && (
+      {manageSubTab === 'users' && user && user.isSuperuser && (
         <UsersTab onOpenUserModal={onOpenUserModal} />
       )}
     </div>

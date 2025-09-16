@@ -60,7 +60,7 @@ const UsersTab = ({ onOpenUserModal }) => {
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center">
                     <span className="font-medium text-gray-900">{u.username}</span>
-                    {u.username === 'admin' && (
+                    {u.isSuperuser && (
                       <span className="ml-2 px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">Admin</span>
                     )}
                   </div>
@@ -83,7 +83,7 @@ const UsersTab = ({ onOpenUserModal }) => {
                     >
                       <Edit3 size={16} />
                     </button>
-                    {u.username !== 'admin' && (
+                    {!u.isSuperuser && (
                       <button
                         onClick={() => handleDeleteUser(u.id, u.username)}
                         className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50"

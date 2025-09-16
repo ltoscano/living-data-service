@@ -563,8 +563,10 @@ const LivingDataService = () => {
             )}
 
             {activeTab === 'manage' && (
-              <ManageSection
-                user={user}
+              <>
+                {console.log('DEBUG: user object in LivingDataService:', user)}
+                <ManageSection
+                  user={user}
                 filteredAndSortedDocuments={filteredAndSortedDocuments}
                 folderTree={folderTree}
                 searchTerm={searchTerm}
@@ -584,6 +586,7 @@ const LivingDataService = () => {
                 onShowFolderLinks={showFolderLinks}
                 showConfirm={showConfirm}
               />
+              </>
             )}
 
             {activeTab === 'analytics' && (

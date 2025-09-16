@@ -154,7 +154,8 @@ class KeycloakAuth {
         if (role === 'admin' && req.session.userId) {
           const db = req.app.locals.db;
           const user = db.prepare('SELECT username FROM users WHERE id = ?').get(req.session.userId);
-          if (user && user.username === 'admin') {
+          const SUPERUSER_NAME = process.env.SUPERUSER_NAME || 'admin';
+          if (user && user.username === SUPERUSER_NAME) {
             return next();
           }
         }

@@ -20,7 +20,7 @@ const VERSION = '0.80'; // Version of Living Data Service - easily modifiable
 const DB_PATH = process.env.DB_PATH || './data/documents.db';
 const RETENTION_DAYS = parseInt(process.env.RETENTION_DAYS) || 30;
 const CLEANUP_INTERVAL = parseInt(process.env.CLEANUP_INTERVAL_MINUTES) || 5;
-const SUPERUSER_NAME = process.env.SUPERUSER_NAME || 'admin';
+const SUPERUSER_NAME = process.env.SUPERUSER_NAME || 'admincdn';
 
 // Setup database SQLite
 let db;
@@ -221,7 +221,7 @@ function startCleanupScheduler() {
 app.use(session({
   secret: process.env.JWT_SECRET || 'default-secret-key',
   resave: false,
-  saveUninitialized: false,
+  saveUninitialized: true, // Cambiato da false a true per salvare sessioni anche se vuote
   cookie: { 
     secure: process.env.SECURE_COOKIES === 'true', // Use HTTPS only if explicitly enabled
     httpOnly: true,
@@ -267,12 +267,16 @@ app.post('/api/login', async (req, res) => {
     req.session.userId = user.id;
     req.session.username = user.username;
     
+    console.log('🔍 DEBUG Login success - setting session userId:', user.id);
+    console.log('🔍 DEBUG Login success - session after set:', req.session);
+    
     res.json({
       success: true,
       user: {
         id: user.id,
         username: user.username,
-        email: user.email
+        email: user.email,
+        isSuperuser: user.username === SUPERUSER_NAME
       }
     });
   } catch (error) {
@@ -295,6 +299,11 @@ app.post('/api/logout', (req, res) => {
 app.get('/api/auth/status', (req, res) => {
   const keycloakAuth = req.app.locals.keycloakAuth;
   
+  console.log('🔍 DEBUG /api/auth/status - SUPERUSER_NAME:', SUPERUSER_NAME);
+  console.log('🔍 DEBUG Keycloak enabled:', keycloakAuth && keycloakAuth.isEnabled());
+  console.log('🔍 DEBUG Request cookies:', req.headers.cookie);
+  console.log('🔍 DEBUG Session ID:', req.sessionID);
+  
   if (keycloakAuth && keycloakAuth.isEnabled()) {
     // Se Keycloak è abilitato, controlla prima Keycloak
     if (req.isAuthenticated && req.isAuthenticated()) {
@@ -305,7 +314,8 @@ app.get('/api/auth/status', (req, res) => {
           username: req.user.username,
           email: req.user.email,
           name: req.user.name,
-          roles: req.user.roles
+          roles: req.user.roles,
+          isSuperuser: req.user.username === SUPERUSER_NAME
         },
         authMethod: 'keycloak',
         keycloakEnabled: true
@@ -315,9 +325,14 @@ app.get('/api/auth/status', (req, res) => {
     // Fallback: controlla autenticazione locale (account applicativi)
     if (req.session && req.session.userId) {
       const user = db.prepare('SELECT id, username, email FROM users WHERE id = ?').get(req.session.userId);
+      console.log('🔍 DEBUG User from DB:', user);
+      console.log('🔍 DEBUG isSuperuser check:', user.username, '===', SUPERUSER_NAME, '=', user.username === SUPERUSER_NAME);
       return res.json({ 
         authenticated: true, 
-        user,
+        user: {
+          ...user,
+          isSuperuser: user.username === SUPERUSER_NAME
+        },
         authMethod: 'local',
         keycloakEnabled: true
       });
@@ -331,11 +346,18 @@ app.get('/api/auth/status', (req, res) => {
   }
   
   // Sistema di autenticazione locale (Keycloak disabilitato)
+  console.log('🔍 DEBUG Session exists:', !!req.session);
+  console.log('🔍 DEBUG Session userId:', req.session?.userId);
   if (req.session && req.session.userId) {
     const user = db.prepare('SELECT id, username, email FROM users WHERE id = ?').get(req.session.userId);
+    console.log('🔍 DEBUG User from DB (no Keycloak):', user);
+    console.log('🔍 DEBUG isSuperuser check (no Keycloak):', user.username, '===', SUPERUSER_NAME, '=', user.username === SUPERUSER_NAME);
     res.json({ 
       authenticated: true, 
-      user,
+      user: {
+        ...user,
+        isSuperuser: user.username === SUPERUSER_NAME
+      },
       authMethod: 'local',
       keycloakEnabled: false
     });
@@ -1109,7 +1131,12 @@ app.get('/api/users', requireAuth, (req, res) => {
       ORDER BY created DESC
     `).all();
 
-    res.json(users);
+    const usersWithSuperuserFlag = users.map(user => ({
+      ...user,
+      isSuperuser: user.username === SUPERUSER_NAME
+    }));
+
+    res.json(usersWithSuperuserFlag);
   } catch (error) {
     console.error('Error getting users:', error);
     res.status(500).json({ error: 'Internal server error' });
