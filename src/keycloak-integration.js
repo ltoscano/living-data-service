@@ -172,7 +172,8 @@ class KeycloakAuth {
       console.log('🔐 Processing dual logout for user:', username);
       
       const logoutURL = `${process.env.KEYCLOAK_SERVER_URL}/realms/${process.env.KEYCLOAK_REALM}/protocol/openid-connect/logout`;
-      const redirectURI = encodeURIComponent(`${req.protocol}://${req.get('host')}/auth/keycloak/logout/callback`);
+      const baseUrl = process.env.BASE_URL || `https://${req.get('host')}`;
+      const redirectURI = encodeURIComponent(`${baseUrl}/auth/keycloak/logout/callback`);
       
       // Recupera l'id_token dalla sessione PRIMA di distruggerla
       const idToken = req.session?.idToken;
