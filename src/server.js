@@ -1865,13 +1865,21 @@ async function startServer() {
     
     // getCurrentUser middleware è già registrato globalmente
     
+    // Handle unmatched API routes before the catch-all
+    app.all('/api/*', (req, res) => {
+      res.status(404).json({ 
+        error: 'API endpoint not found',
+        path: req.path,
+        method: req.method
+      });
+    });
+
     // Serve React app per tutte le route non-API (catch-all route)
     app.get('*', (req, res) => {
       const keycloakAuth = req.app.locals.keycloakAuth;
       
-      // Escludi le route di autenticazione, API e assets dal redirect automatico
+      // Escludi le route di autenticazione, assets dal redirect automatico
       if (req.path.startsWith('/auth/') || 
-          req.path.startsWith('/api/') || 
           req.path.startsWith('/assets/') ||
           req.path.startsWith('/health') ||
           req.path.includes('.')) {
