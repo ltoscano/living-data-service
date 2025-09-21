@@ -1874,6 +1874,20 @@ async function startServer() {
       });
     });
 
+    // Handle unmatched auth routes
+    app.all('/auth/*', (req, res) => {
+      res.status(404).json({ 
+        error: 'Auth endpoint not found',
+        path: req.path,
+        method: req.method
+      });
+    });
+
+    // Handle unmatched assets routes
+    app.all('/assets/*', (req, res) => {
+      res.status(404).send('Asset not found');
+    });
+
     // Serve React app per tutte le route non-API (catch-all route)
     app.get('*', (req, res) => {
       const keycloakAuth = req.app.locals.keycloakAuth;
