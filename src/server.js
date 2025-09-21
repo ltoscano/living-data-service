@@ -728,6 +728,50 @@ app.get('/api/check-update/:documentId', async (req, res) => {
   }
 });
 
+// ENDPOINT: Handle /public without token - show helpful error page
+app.get('/public', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  
+  return res.status(400).send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Invalid Public Link</title>
+      <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 40px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #e67e22; margin-bottom: 20px; }
+        p { color: #666; line-height: 1.6; margin-bottom: 15px; }
+        .icon { font-size: 64px; margin-bottom: 20px; }
+        .example { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #e67e22; }
+        .example code { font-family: monospace; color: #d73502; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="icon">🔗❓</div>
+        <h1>Incomplete Public Link</h1>
+        <p>You've accessed the public documents area, but you're missing the document identifier.</p>
+        <p>Public document links should look like this:</p>
+        <div class="example">
+          <code>${req.protocol}://${req.get('host')}/public/[document-token]</code>
+        </div>
+        <p>Please check the complete link provided to you, or contact the person who shared the document for the correct URL.</p>
+      </div>
+    </body>
+    </html>
+  `);
+});
+
+// ENDPOINT: Handle /public/ (with trailing slash) without token
+app.get('/public/', (req, res) => {
+  res.redirect('/public');
+});
+
 // ENDPOINT: Download pubblico tramite token (sempre ultima versione)
 app.get('/public/:accessToken', async (req, res) => {
   try {
