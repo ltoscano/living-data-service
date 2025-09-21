@@ -1519,7 +1519,7 @@ function generateUpdateScript(documentId, currentVersion, updateFrequency = 'man
     var currentVersion = "${currentVersion}";
     var updateFrequency = "${updateFrequency}";
     var checkInterval = ${checkInterval};
-    var baseUrl = "https://cdn.synthetici.com"; // Base URL in produzione
+    var baseUrl = "${process.env.BASE_URL || 'http://localhost:3000'}"; // Base URL configurabile
     
     // Funzione principale di controllo aggiornamenti
     function checkForUpdates() {
